@@ -246,6 +246,26 @@ Profile QGC for performance and memory issues.
 ./tools/debuggers/profile.sh --sanitize     # Build with AddressSanitizer
 ```
 
+### deploy-mk15.sh
+
+Build, sign, install, and launch the Android app on a USB-connected MK15/UniRC7 controller.
+Zero-argument, hands-off use is the point: it auto-detects a JDK 21+ toolchain, the default
+signing keystore/alias/password file, validates the device model, and re-installs over a
+signature mismatch automatically (uninstalling the previous build first).
+
+```bash
+./tools/deploy-mk15.sh                  # Incremental build, sign, install, and launch — no prompts
+./tools/deploy-mk15.sh --configure      # Re-run CMake configuration first
+./tools/deploy-mk15.sh --skip-build     # Reinstall the existing signed APK
+./tools/deploy-mk15.sh --no-install     # Build only
+./tools/deploy-mk15.sh --no-auto-reinstall  # Fail instead of uninstalling on a signature mismatch
+```
+
+The keystore password is read from `MK15_KEYSTORE_PASSWORD_FILE` (default
+`~/qgc-signing/.keystore_password.txt`) when set; `MK15_KEYSTORE_STORE_PASS` overrides it, and the
+script prompts without echoing when neither is available. The password is never stored in the
+repository. Run `./tools/deploy-mk15.sh --help` for all path, signing, and device overrides.
+
 ### check_deps.py
 
 Check for outdated dependencies and submodules. Underlies `just check-deps`.
