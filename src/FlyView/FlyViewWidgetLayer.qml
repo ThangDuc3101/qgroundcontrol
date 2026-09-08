@@ -49,7 +49,7 @@ Item {
         topEdgeCenterInset:     mapScale.topEdgeCenterInset
         topEdgeRightInset:      topRightPanel.topEdgeRightInset
         bottomEdgeLeftInset:    virtualJoystickMultiTouch.visible ? virtualJoystickMultiTouch.bottomEdgeLeftInset : parentToolInsets.bottomEdgeLeftInset
-        bottomEdgeCenterInset:  bottomRightRowLayout.bottomEdgeCenterInset
+        bottomEdgeCenterInset:  bottomCenterTelemetryBar.bottomEdgeCenterInset
         bottomEdgeRightInset:   virtualJoystickMultiTouch.visible ? virtualJoystickMultiTouch.bottomEdgeRightInset : bottomRightRowLayout.bottomEdgeRightInset
     }
 
@@ -83,8 +83,18 @@ Item {
         spacing:            _layoutSpacing
 
         property real bottomEdgeRightInset:     height + _layoutMargin
-        property real bottomEdgeCenterInset:    bottomEdgeRightInset
         property real rightEdgeBottomInset:     width + _layoutMargin
+    }
+
+    //-- Telemetry values, moved out of bottomRightRowLayout to sit bottom-center (product request)
+    TelemetryValuesBar {
+        id:                     bottomCenterTelemetryBar
+        anchors.bottom:         parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        settingsGroup:          factValueGrid.telemetryBarSettingsGroup
+        specificVehicleForCard: null // Tracks active vehicle
+
+        property real bottomEdgeCenterInset: height + _layoutMargin
     }
 
     FlyViewMissionCompleteDialog {
@@ -152,7 +162,7 @@ Item {
         anchors.top:            parent.top
         z:                      QGroundControl.zOrderWidgets
         maxHeight:              parent.height - y - parentToolInsets.bottomEdgeLeftInset - _toolsMargin
-        visible:                !QGroundControl.videoManager.fullScreen
+        visible:                false // temporarily hidden (product request); restore "!QGroundControl.videoManager.fullScreen" to bring back Takeoff/Land/RTL/... actions
 
         onDisplayPreFlightChecklist: {
             if (!preFlightChecklistLoader.active) {

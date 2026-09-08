@@ -6,12 +6,7 @@ import QGroundControl.Controls
 import QGroundControl.FlyView
 
 RowLayout {
-    TelemetryValuesBar {
-        Layout.alignment:       Qt.AlignBottom
-        extraWidth:             instrumentPanel.extraValuesWidth
-        settingsGroup:          factValueGrid.telemetryBarSettingsGroup
-        specificVehicleForCard: null // Tracks active vehicle
-    }
+    // TelemetryValuesBar used to live here; it now sits bottom-center in FlyViewWidgetLayer.qml (product request)
 
     FlyViewInstrumentPanel {
         id:                 instrumentPanel
