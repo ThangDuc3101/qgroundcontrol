@@ -7,6 +7,7 @@ qt_add_qml_module(ToolbarModule
     QML_FILES
         ArmedIndicator.qml
         BatteryIndicator.qml
+        ClockIndicator.qml
         EscIndicator.qml
         EscIndicatorPage.qml
         FlightModeIndicator.qml
