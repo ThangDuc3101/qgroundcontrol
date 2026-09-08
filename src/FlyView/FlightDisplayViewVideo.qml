@@ -31,6 +31,11 @@ Item {
     property bool   _isMode_FILL:       _fitMode === 2
     property bool   _isMode_NO_CROP:    _fitMode === 3
 
+    // Horizon reference line (product request): same roll/pitch convention as QGCArtificialHorizon.qml
+    property var    _horizonVehicle: globals.activeVehicle
+    property real   _horizonRoll:    _horizonVehicle ? _horizonVehicle.roll.rawValue  : 0
+    property real   _horizonPitch:   _horizonVehicle ? _horizonVehicle.pitch.rawValue : 0
+
     function getWidth() {
         return videoBackground.getWidth()
     }
@@ -278,5 +283,27 @@ Item {
             }
             property int zoom: 0
         }
+    }
+
+    // Red horizon reference line (product request): rotates with roll, shifts with pitch, same
+    // convention as QGCArtificialHorizon.qml. Sits above both the video and no-video states, and
+    // rotates around its own midpoint.
+    Rectangle {
+        id:               horizonLine
+        anchors.centerIn: parent
+        width:            root.width * 0.3
+        height:           ScreenTools.defaultFontPixelHeight * 0.1
+        color:            "red"
+
+        transform: [
+            Translate {
+                y: _horizonPitch * root.height / 45
+            },
+            Rotation {
+                origin.x: horizonLine.width  / 2
+                origin.y: horizonLine.height / 2
+                angle:    -_horizonRoll
+            }
+        ]
     }
 }
