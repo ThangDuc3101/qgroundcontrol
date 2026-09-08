@@ -9,26 +9,28 @@ Item {
     implicitWidth:  mainLayout.width + (_toolsMargin * 2)
     implicitHeight: mainLayout.height + (_toolsMargin * 2)
 
-    property real extraWidth: 0 ///< Extra width to add to the background rectangle
+    property real extraWidth:   0           ///< Extra width to add to the background rectangle
+    property color borderColor: "transparent" ///< Background rectangle border color, opt-in per instance
+    property real  borderWidth: 0             ///< Background rectangle border width, opt-in per instance
 
     property alias factValueGrid:           factValueGrid
     property alias settingsGroup:           factValueGrid.settingsGroup
     property alias specificVehicleForCard:  factValueGrid.specificVehicleForCard
 
     Rectangle {
-        id:         backgroundRect
-        width:      control.width + extraWidth
-        height:     control.height
-        color:      qgcPal.window
-        radius:     ScreenTools.defaultFontPixelWidth / 2
-        opacity:    0.75
+        id:           backgroundRect
+        width:        control.width + extraWidth
+        height:       control.height
+        color:        qgcPal.window
+        radius:       ScreenTools.defaultFontPixelWidth / 2
+        opacity:      0.75
+        border.color: control.borderColor
+        border.width: control.borderWidth
     }
 
     ColumnLayout {
         id:                 mainLayout
-        anchors.margins:    _toolsMargin
-        anchors.bottom:     parent.bottom
-        anchors.left:       parent.left
+        anchors.centerIn:   parent
 
         RowLayout {
             visible: factValueGrid.settingsUnlocked

@@ -22,6 +22,7 @@ Item {
     property var    totalToolInsets:        _totalToolInsets
     property var    mapControl
     property var    viewer3DCameraController
+    property color  mainStatusBGColor:      qgcPal.brandingPurple // FlyViewToolBar's live status color (red/green/yellow/idle)
 
     property var    _activeVehicle:         QGroundControl.multiVehicleManager.activeVehicle
     property var    _planMasterController:  globals.planMasterControllerFlyView
@@ -36,6 +37,11 @@ Item {
     property real   _layoutMargin:          ScreenTools.defaultFontPixelWidth * 0.75
     property bool   _layoutSpacing:         ScreenTools.defaultFontPixelWidth
     property bool   _showSingleVehicleUI:   true
+
+    // Drag-to-resize state for bottomCenterTelemetryBar (product request). Session-only, not persisted.
+    property real         _telemetryBarUserScale: 1.0
+    readonly property real _telemetryBarMinScale:  0.6
+    readonly property real _telemetryBarMaxScale:  2.5
 
     QGCToolInsets {
         id:                     _totalToolInsets
@@ -91,10 +97,58 @@ Item {
         id:                     bottomCenterTelemetryBar
         anchors.bottom:         parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
+        scale:                  _telemetryBarUserScale
+        transformOrigin:        Item.Bottom
+        borderColor:            mainStatusBGColor // tracks the toolbar's live status color, right after the Q logo
+        borderWidth:            2
         settingsGroup:          factValueGrid.telemetryBarSettingsGroup
         specificVehicleForCard: null // Tracks active vehicle
 
         property real bottomEdgeCenterInset: height + _layoutMargin
+    }
+
+    // Drag handle to resize bottomCenterTelemetryBar on the fly (product request). Drag to scale
+    // up/down, double-click/tap to reset to 1:1. Same pipResize.svg + top-right placement as
+    // PipView's resize handle. bottomCenterTelemetryBar's transformOrigin is Item.Bottom (bottom
+    // edge fixed, grows symmetrically left/right/up), so its actual *visual* top-right corner under
+    // "scale" is at local (width/2 * (1 + scale), height * (1 - scale)) — track that point
+    // explicitly rather than anchoring to the unscaled .right/.top, which "scale" doesn't move.
+    Image {
+        id:             telemetryBarResizeIcon
+        source:         "/qmlimages/pipResize.svg"
+        fillMode:       Image.PreserveAspectFit
+        mipmap:         true
+        height:         ScreenTools.defaultFontPixelHeight * 1.5
+        width:          height
+        x:              bottomCenterTelemetryBar.x + (bottomCenterTelemetryBar.width / 2) * (1 + bottomCenterTelemetryBar.scale) - width / 2
+        y:              bottomCenterTelemetryBar.y + bottomCenterTelemetryBar.height * (1 - bottomCenterTelemetryBar.scale) - height / 2
+        z:              QGroundControl.zOrderTopMost
+
+        MouseArea {
+            id:                 telemetryBarResizeDrag
+            anchors.fill:       parent
+            preventStealing:    true
+            cursorShape:        Qt.PointingHandCursor
+
+            property real _pressX:           0
+            property real _pressY:           0
+            property real _scaleAtPressStart: 1.0
+
+            onPressed: (mouse) => {
+                _pressX = mouse.x
+                _pressY = mouse.y
+                _scaleAtPressStart = _telemetryBarUserScale
+            }
+
+            onPositionChanged: (mouse) => {
+                if (pressed) {
+                    const delta = ((mouse.x - _pressX) + (mouse.y - _pressY)) / (ScreenTools.defaultFontPixelHeight * 8)
+                    _telemetryBarUserScale = Math.min(_telemetryBarMaxScale, Math.max(_telemetryBarMinScale, _scaleAtPressStart + delta))
+                }
+            }
+
+            onDoubleClicked: _telemetryBarUserScale = 1.0
+        }
     }
 
     FlyViewMissionCompleteDialog {

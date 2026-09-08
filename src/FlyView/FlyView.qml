@@ -117,6 +117,7 @@ Item {
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
             viewer3DCameraController: viewer3DLoader.item ? viewer3DLoader.item.cameraController : null
+            mainStatusBGColor:      toolbar._mainStatusBGColor
             visible:                !QGroundControl.videoManager.fullScreen
         }
 
