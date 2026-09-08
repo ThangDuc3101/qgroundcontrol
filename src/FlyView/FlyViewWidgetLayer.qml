@@ -45,13 +45,13 @@ Item {
 
     QGCToolInsets {
         id:                     _totalToolInsets
-        leftEdgeTopInset:       toolStrip.leftEdgeTopInset
+        leftEdgeTopInset:       Math.max(toolStrip.leftEdgeTopInset, parentToolInsets.leftEdgeTopInset)
         leftEdgeCenterInset:    toolStrip.leftEdgeCenterInset
         leftEdgeBottomInset:    virtualJoystickMultiTouch.visible ? virtualJoystickMultiTouch.leftEdgeBottomInset : parentToolInsets.leftEdgeBottomInset
         rightEdgeTopInset:      topRightPanel.rightEdgeTopInset
         rightEdgeCenterInset:   topRightPanel.rightEdgeCenterInset
         rightEdgeBottomInset:   bottomRightRowLayout.rightEdgeBottomInset
-        topEdgeLeftInset:       toolStrip.topEdgeLeftInset
+        topEdgeLeftInset:       Math.max(toolStrip.topEdgeLeftInset, parentToolInsets.topEdgeLeftInset)
         topEdgeCenterInset:     mapScale.topEdgeCenterInset
         topEdgeRightInset:      topRightPanel.topEdgeRightInset
         bottomEdgeLeftInset:    virtualJoystickMultiTouch.visible ? virtualJoystickMultiTouch.bottomEdgeLeftInset : parentToolInsets.bottomEdgeLeftInset
@@ -237,8 +237,8 @@ Item {
 
     MapScale {
         id:                 mapScale
-        anchors.left:       toolStrip.right
-        anchors.leftMargin: _toolsMargin
+        anchors.left:       parent.left
+        anchors.leftMargin: _totalToolInsets.leftEdgeTopInset + _toolsMargin // clears toolStrip (if re-enabled) and the top-left video PIP
         anchors.top:        parent.top
         mapControl:         _mapControl
         autoHide:           true
@@ -249,8 +249,8 @@ Item {
 
     Viewer3DScaleBar {
         objectName:         "viewer3DScaleBar"
-        anchors.left:       toolStrip.right
-        anchors.leftMargin: _toolsMargin
+        anchors.left:       parent.left
+        anchors.leftMargin: _totalToolInsets.leftEdgeTopInset + _toolsMargin // clears toolStrip (if re-enabled) and the top-left video PIP
         anchors.top:        parent.top
         controller:         _root.viewer3DCameraController
         autoHide:           true

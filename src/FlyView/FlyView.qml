@@ -61,11 +61,10 @@ Item {
 
     QGCToolInsets {
         id:                     _toolInsets
-        topEdgeLeftInset:       toolbar.height
-        topEdgeCenterInset:     topEdgeLeftInset
-        topEdgeRightInset:      topEdgeLeftInset
-        leftEdgeBottomInset:    _pipView.leftEdgeBottomInset
-        bottomEdgeLeftInset:    _pipView.bottomEdgeLeftInset
+        topEdgeLeftInset:       toolbar.height + _pipView.topEdgeLeftInset // pip now sits top-left, stacked below the toolbar
+        topEdgeCenterInset:     toolbar.height
+        topEdgeRightInset:      toolbar.height
+        leftEdgeTopInset:       _pipView.leftEdgeTopInset
     }
 
     Item {
@@ -92,8 +91,9 @@ Item {
         PipView {
             id:                     _pipView
             anchors.left:           parent.left
-            anchors.bottom:         parent.bottom
+            anchors.top:            parent.top
             anchors.margins:        _toolsMargin
+            anchors.topMargin:      toolbar.height + _toolsMargin // moved to top-left (product request); sits below the toolbar
             item1IsFullSettingsKey: "MainFlyWindowIsMap"
             item1:                  mapControl
             item2:                  QGroundControl.videoManager.hasVideo ? videoControl : null
@@ -101,8 +101,8 @@ Item {
                                         (videoControl.pipState.state === videoControl.pipState.pipState || mapControl.pipState.state === mapControl.pipState.pipState)
             z:                      QGroundControl.zOrderWidgets
 
-            property real leftEdgeBottomInset: visible ? width + anchors.margins : 0
-            property real bottomEdgeLeftInset: visible ? height + anchors.margins : 0
+            property real leftEdgeTopInset: visible ? width + anchors.margins : 0
+            property real topEdgeLeftInset: visible ? height + anchors.margins : 0
         }
 
         FlyViewWidgetLayer {
