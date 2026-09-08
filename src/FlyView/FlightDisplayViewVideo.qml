@@ -40,29 +40,81 @@ Item {
 
     property double _thermalHeightFactor: 0.85 //-- TODO
 
-        Image {
+        Item {
             id:             noVideo
             anchors.fill:   parent
-            source:         "/res/NoVideoBackground.jpg"
-            fillMode:       Image.PreserveAspectCrop
             visible:        !_showStreamLoader && !_showUvcLoader
 
+            readonly property real _iconSize:         ScreenTools.defaultFontPixelHeight * (useSmallFont ? 4 : 6)
+            readonly property real _crosshairArm:     _iconSize * 0.09
+            readonly property real _crosshairGap:     _iconSize * 0.055
+            readonly property real _crosshairThickness: ScreenTools.defaultFontPixelHeight * 0.06
+
             Rectangle {
-                anchors.centerIn:   parent
-                width:              noVideoLabel.contentWidth + ScreenTools.defaultFontPixelHeight
-                height:             noVideoLabel.contentHeight + ScreenTools.defaultFontPixelHeight
-                radius:             ScreenTools.defaultFontPixelWidth / 2
-                color:              "black"
-                opacity:            0.5
+                anchors.fill: parent
+                color:        "black"
             }
 
-            QGCLabel {
-                id:                 noVideoLabel
-                text:               QGroundControl.settingsManager.videoSettings.streamEnabled.rawValue ? qsTr("WAITING FOR VIDEO") : qsTr("VIDEO DISABLED")
-                font.bold:          true
-                color:              "white"
-                font.pointSize:     useSmallFont ? ScreenTools.smallFontPointSize : ScreenTools.largeFontPointSize
+            // Small gun-sight-style reticle (4 short arms with a center gap), sized off the camera
+            // icon rather than the full frame
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom:           parent.verticalCenter
+                anchors.bottomMargin:     noVideo._crosshairGap
+                width:  noVideo._crosshairThickness
+                height: noVideo._crosshairArm
+                color:  "red"
+            }
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top:              parent.verticalCenter
+                anchors.topMargin:        noVideo._crosshairGap
+                width:  noVideo._crosshairThickness
+                height: noVideo._crosshairArm
+                color:  "red"
+            }
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right:          parent.horizontalCenter
+                anchors.rightMargin:    noVideo._crosshairGap
+                height: noVideo._crosshairThickness
+                width:  noVideo._crosshairArm
+                color:  "red"
+            }
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left:           parent.horizontalCenter
+                anchors.leftMargin:     noVideo._crosshairGap
+                height: noVideo._crosshairThickness
+                width:  noVideo._crosshairArm
+                color:  "red"
+            }
+
+            // Camera-off icon at the crosshair's center
+            Item {
                 anchors.centerIn:   parent
+                width:              noVideo._iconSize
+                height:             width
+
+                QGCColoredImage {
+                    anchors.fill:       parent
+                    anchors.margins:    parent.width * 0.15
+                    source:             "/InstrumentValueIcons/video-camera.svg"
+                    fillMode:           Image.PreserveAspectFit
+                    sourceSize.width:   width
+                    color:              "white"
+                    opacity:            0.6
+                }
+
+                // Diagonal "off" slash, same color as the camera icon
+                Rectangle {
+                    anchors.centerIn:   parent
+                    width:              parent.width * 1.2
+                    height:             ScreenTools.defaultFontPixelHeight * 0.3
+                    radius:             height / 2
+                    color:              "white"
+                    rotation:           45
+                }
             }
         }
 
