@@ -31,4 +31,12 @@ ColumnLayout {
             }
         }
     }
+
+    // Moved up from the bottom-right row layout to take the spot left empty by the hidden
+    // PhotoVideoControl above (product request)
+    FlyViewInstrumentPanel {
+        id:                 instrumentPanel
+        Layout.alignment:   Qt.AlignRight
+        visible:            QGroundControl.corePlugin.options.flyView.showInstrumentPanel && _showSingleVehicleUI
+    }
 }

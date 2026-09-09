@@ -7,10 +7,6 @@ import QGroundControl.FlyView
 
 RowLayout {
     // TelemetryValuesBar used to live here; it now sits bottom-center in FlyViewWidgetLayer.qml (product request)
-
-    FlyViewInstrumentPanel {
-        id:                 instrumentPanel
-        Layout.alignment:   Qt.AlignBottom
-        visible:            QGroundControl.corePlugin.options.flyView.showInstrumentPanel && _showSingleVehicleUI
-    }
+    // FlyViewInstrumentPanel (compass/attitude) used to live here too; it now sits top-right in
+    // FlyViewTopRightColumnLayout.qml, in the slot left by the hidden PhotoVideoControl (product request)
 }
