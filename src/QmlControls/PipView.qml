@@ -1,13 +1,20 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Effects
 
 import QGroundControl
 import QGroundControl.Controls
 
+// Circular PIP (product request): same diameter formula as the compass's dial
+// (IntegratedCompassAttitude.qml's compassRadius*2), so the two read as a matched pair. Video/map
+// content is an ordinary rectangular Item with no "radius" concept of its own, and clip:true only
+// ever clips to an item's rectangular bounds (never to Rectangle.radius) - so genuine circular
+// clipping needs a pixel mask, not just anchoring/clip tricks. Reuses the exact MultiEffect +
+// hidden-mask-Item pattern QGCAttitudeWidget.qml already uses for the compass dial itself.
 Item {
     id:         _root
     width:      _pipSize
-    height:     _pipSize * (9/16)
+    height:     _pipSize
     visible:    item2 && item2.pipState !== item2.pipState.window && show
 
     property var    item1:                  null    // Required
@@ -22,10 +29,16 @@ Item {
     property alias  _windowContentItem: window.contentItem
     property alias  _pipContentItem:    pipContent
     property bool   _isExpanded:        true
-    property real   _pipSize:           parent.width * 0.2
+    property real   _pipSize:           Math.min(parent.width * 0.15, ScreenTools.defaultFontPixelHeight * 7)
     property real   _maxSize:           0.75                // Percentage of parent control size
     property real   _minSize:           0.10
     property bool   _componentComplete: false
+    // Now that _root is a circle, the corner-anchored utility icons below need to sit inset from
+    // the literal corner (otherwise they'd float outside the visible circle, in the masked-away
+    // area) - roughly the gap between a square's corner and its inscribed circle.
+    readonly property real _cornerInset: _root.width * 0.15
+
+    QGCPalette { id: qgcPal }
 
     Component.onCompleted: {
         _initForItems()
@@ -90,11 +103,52 @@ Item {
         }
     }
 
+    // Holds the actual reparented map/video content (see PipState.qml's pipState:
+    // ParentChange { target: _viewControl; parent: pipView._pipContentItem }). Always hidden now
+    // - it exists purely as an offscreen source for the circular mask below, which is what's
+    // actually visible. Qt Quick still renders (and reparenting/anchoring still works) for a
+    // hidden item as long as something is consuming its texture, same as instrument.visible:
+    // false in QGCAttitudeWidget.qml.
     Item {
         id:             pipContent
         anchors.fill:   parent
-        visible:        _isExpanded
+        visible:        false
         clip:           true
+    }
+
+    MultiEffect {
+        id:           pipMasked
+        source:       pipContent
+        anchors.fill: pipContent
+        visible:      _isExpanded
+        maskEnabled:  true
+        maskSource:   pipMask
+    }
+
+    Item {
+        id:      pipMask
+        width:   pipContent.width
+        height:  pipContent.height
+        layer.enabled: true
+        visible: false
+
+        Rectangle {
+            width:  parent.width
+            height: parent.height
+            radius: width / 2
+            color:  "black"
+        }
+    }
+
+    // Thin circular border so the PIP still reads as a deliberate round element (matches the
+    // compass dial's own border) rather than looking like a clipping artifact
+    Rectangle {
+        anchors.fill: pipContent
+        visible:      _isExpanded
+        radius:       width / 2
+        color:        "transparent"
+        border.color: qgcPal.text
+        border.width: 1
     }
 
     MouseArea {
@@ -145,6 +199,8 @@ Item {
         mipmap:         true
         anchors.right:  parent.right
         anchors.top:    parent.top
+        anchors.rightMargin: _cornerInset
+        anchors.topMargin:   _cornerInset
         visible:        _isExpanded && (ScreenTools.isMobile || pipMouseArea.containsMouse)
         height:         ScreenTools.defaultFontPixelHeight * 2.5
         width:          ScreenTools.defaultFontPixelHeight * 2.5
@@ -177,6 +233,8 @@ Item {
         fillMode:       Image.PreserveAspectFit
         anchors.left:   parent.left
         anchors.top:    parent.top
+        anchors.leftMargin: _cornerInset
+        anchors.topMargin:  _cornerInset
         visible:        _isExpanded && !ScreenTools.isMobile && pipMouseArea.containsMouse
         height:         ScreenTools.defaultFontPixelHeight * 2.5
         width:          ScreenTools.defaultFontPixelHeight * 2.5
@@ -195,6 +253,8 @@ Item {
         fillMode:       Image.PreserveAspectFit
         anchors.left:   parent.left
         anchors.bottom: parent.bottom
+        anchors.leftMargin:   _cornerInset
+        anchors.bottomMargin: _cornerInset
         visible:        _isExpanded && (ScreenTools.isMobile || pipMouseArea.containsMouse)
         height:         ScreenTools.defaultFontPixelHeight * 2.5
         width:          ScreenTools.defaultFontPixelHeight * 2.5
