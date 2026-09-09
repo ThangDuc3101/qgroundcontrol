@@ -45,60 +45,27 @@ Item {
 
     property double _thermalHeightFactor: 0.85 //-- TODO
 
+    // Gun-sight reticle sizing, shared between the always-on crosshair below and the no-video
+    // camera-off icon (which is sized off the same icon size).
+    readonly property real _iconSize:           ScreenTools.defaultFontPixelHeight * (useSmallFont ? 4 : 6)
+    readonly property real _crosshairArm:       _iconSize * 0.09
+    readonly property real _crosshairGap:       _iconSize * 0.055
+    readonly property real _crosshairThickness: ScreenTools.defaultFontPixelHeight * 0.06
+
         Item {
             id:             noVideo
             anchors.fill:   parent
             visible:        !_showStreamLoader && !_showUvcLoader
-
-            readonly property real _iconSize:         ScreenTools.defaultFontPixelHeight * (useSmallFont ? 4 : 6)
-            readonly property real _crosshairArm:     _iconSize * 0.09
-            readonly property real _crosshairGap:     _iconSize * 0.055
-            readonly property real _crosshairThickness: ScreenTools.defaultFontPixelHeight * 0.06
 
             Rectangle {
                 anchors.fill: parent
                 color:        "black"
             }
 
-            // Small gun-sight-style reticle (4 short arms with a center gap), sized off the camera
-            // icon rather than the full frame
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom:           parent.verticalCenter
-                anchors.bottomMargin:     noVideo._crosshairGap
-                width:  noVideo._crosshairThickness
-                height: noVideo._crosshairArm
-                color:  "red"
-            }
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top:              parent.verticalCenter
-                anchors.topMargin:        noVideo._crosshairGap
-                width:  noVideo._crosshairThickness
-                height: noVideo._crosshairArm
-                color:  "red"
-            }
-            Rectangle {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.right:          parent.horizontalCenter
-                anchors.rightMargin:    noVideo._crosshairGap
-                height: noVideo._crosshairThickness
-                width:  noVideo._crosshairArm
-                color:  "red"
-            }
-            Rectangle {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.left:           parent.horizontalCenter
-                anchors.leftMargin:     noVideo._crosshairGap
-                height: noVideo._crosshairThickness
-                width:  noVideo._crosshairArm
-                color:  "red"
-            }
-
             // Camera-off icon at the crosshair's center
             Item {
                 anchors.centerIn:   parent
-                width:              noVideo._iconSize
+                width:              root._iconSize
                 height:             width
 
                 QGCColoredImage {
@@ -282,6 +249,48 @@ Item {
                 }
             }
             property int zoom: 0
+        }
+    }
+
+    // Small gun-sight-style reticle (4 short arms with a center gap). A plain sibling of
+    // videoBackground/noVideo (not nested in either) so it always renders on top, whether or not
+    // a video stream is active — previously it lived inside noVideo and vanished as soon as
+    // streaming started.
+    Item {
+        id:             crosshair
+        anchors.fill:   parent
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom:           parent.verticalCenter
+            anchors.bottomMargin:     root._crosshairGap
+            width:  root._crosshairThickness
+            height: root._crosshairArm
+            color:  "red"
+        }
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top:              parent.verticalCenter
+            anchors.topMargin:        root._crosshairGap
+            width:  root._crosshairThickness
+            height: root._crosshairArm
+            color:  "red"
+        }
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right:          parent.horizontalCenter
+            anchors.rightMargin:    root._crosshairGap
+            height: root._crosshairThickness
+            width:  root._crosshairArm
+            color:  "red"
+        }
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left:           parent.horizontalCenter
+            anchors.leftMargin:     root._crosshairGap
+            height: root._crosshairThickness
+            width:  root._crosshairArm
+            color:  "red"
         }
     }
 
