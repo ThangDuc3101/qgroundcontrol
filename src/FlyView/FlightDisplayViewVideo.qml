@@ -351,6 +351,125 @@ Item {
         }
     }
 
+    // Bank/roll scale (product request, phase 2 of the pilot-HUD pass): a small tick arc near
+    // the top of the video plus a fixed downward pointer. (Tried a full ring instead per a
+    // second round of feedback - reverted, called "xấu quá"/too ugly; back to this arc.) Same
+    // "world rotates, pilot's viewpoint fixed" convention the pitch ladder already uses: the
+    // tick arc is attached to the rotating world frame (rotates by -roll around a pivot placed
+    // well below the visible area, so only a shallow slice of the underlying circle shows -
+    // reading as a gentle arc), while the pointer at top stays fixed, so whichever tick ends up
+    // under it is the current bank angle. Labels rotate with their tick rather than staying
+    // upright, same as a real PFD's roll scale - deliberate, not an oversight. Unlike the pitch
+    // ladder this only rotates (no pitch translate), since bank doesn't shift with pitch. Shows
+    // correctly at rest (0° sits right under the fixed pointer when level), unlike the reverted
+    // flight path marker above.
+    readonly property real _rollScaleRadius:    ScreenTools.defaultFontPixelHeight * 12
+    readonly property real _rollScaleMaxDeg:    60
+    readonly property real _rollScaleHalfWidth: _rollScaleRadius * Math.sin(_rollScaleMaxDeg * Math.PI / 180)
+    readonly property real _rollScaleDroop:     _rollScaleRadius * (1 - Math.cos(_rollScaleMaxDeg * Math.PI / 180))
+    readonly property var  _rollScaleTicks: [
+        { deg: -60, len: 3, label: true  }, { deg: -45, len: 2, label: false },
+        { deg: -30, len: 3, label: true  }, { deg: -20, len: 1, label: false },
+        { deg: -10, len: 1, label: false }, { deg:   0, len: 4, label: false },
+        { deg:  10, len: 1, label: false }, { deg:  20, len: 1, label: false },
+        { deg:  30, len: 3, label: true  }, { deg:  45, len: 2, label: false },
+        { deg:  60, len: 3, label: true  }
+    ]
+
+    Item {
+        id:                       rollScale
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top:              parent.top
+        // root spans the full screen height, behind the toolbar included (only
+        // FlyViewWidgetLayer's instrument overlays account for toolbar height themselves).
+        // mainWindow.header is never assigned anywhere in this codebase (grepped) - it's always
+        // null, so mainWindow.header.height (tried above, and already dead-of-night in
+        // thermalItem.pipOrNot() below) is NaN and silently drops the margin. ScreenTools.
+        // toolbarHeight is the real, reliable constant - it's what FlyViewToolBar sizes its own
+        // height off. First attempt at only +0.3 font-heights of extra room still clipped a
+        // sliver; +1.5 to have real headroom this time.
+        anchors.topMargin:        ScreenTools.toolbarHeight + ScreenTools.defaultFontPixelHeight * 1.5
+        width:                    _rollScaleHalfWidth * 2 + ScreenTools.defaultFontPixelWidth * 4
+        height:                   _rollScaleDroop + ScreenTools.defaultFontPixelHeight * 2
+        clip:                     true
+
+        readonly property real _pivotX: width / 2
+        readonly property real _pivotY: _rollScaleRadius
+
+        // Fixed index (does not rotate) - whichever tick ends up below it is the current bank
+        Item {
+            id:     rollPointer
+            x:      rollScale._pivotX - width / 2
+            y:      0
+            width:  ScreenTools.defaultFontPixelHeight * 0.7
+            height: ScreenTools.defaultFontPixelHeight * 0.4
+
+            Rectangle {
+                width:           parent.width * 0.6
+                height:          _hudLineThickness
+                color:           "red"
+                anchors.right:   parent.horizontalCenter
+                anchors.bottom:  parent.bottom
+                transformOrigin: Item.BottomRight
+                rotation:        35
+            }
+            Rectangle {
+                width:           parent.width * 0.6
+                height:          _hudLineThickness
+                color:           "red"
+                anchors.left:    parent.horizontalCenter
+                anchors.bottom:  parent.bottom
+                transformOrigin: Item.BottomLeft
+                rotation:        -35
+            }
+        }
+
+        // Rotating tick arc - one rigid body, same as pitchLadder
+        Item {
+            id:           rollScaleTicks
+            anchors.fill: parent
+
+            transform: Rotation {
+                origin.x: rollScale._pivotX
+                origin.y: rollScale._pivotY
+                angle:    -_horizonRoll
+            }
+
+            Repeater {
+                model: _rollScaleTicks
+
+                Item {
+                    id: tick
+
+                    readonly property real _deg: modelData.deg
+                    readonly property real _len: modelData.len * ScreenTools.defaultFontPixelHeight * 0.15
+
+                    x:        rollScale._pivotX + _rollScaleRadius * Math.sin(_deg * Math.PI / 180) - width / 2
+                    y:        rollScale._pivotY - _rollScaleRadius * Math.cos(_deg * Math.PI / 180) - height / 2
+                    width:    _hudLineThickness
+                    height:   _len
+                    rotation: _deg
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color:        "red"
+                    }
+
+                    Text {
+                        visible:                  modelData.label
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top:              parent.bottom
+                        anchors.topMargin:        ScreenTools.defaultFontPixelHeight * 0.15
+                        text:                     Math.abs(tick._deg)
+                        color:                    "red"
+                        font.bold:                true
+                        font.pointSize:           ScreenTools.smallFontPointSize
+                    }
+                }
+            }
+        }
+    }
+
     // Small gun-sight-style reticle (4 short arms with a center gap). A plain sibling of
     // videoBackground/noVideo (not nested in either) so it always renders on top, whether or not
     // a video stream is active — previously it lived inside noVideo and vanished as soon as
