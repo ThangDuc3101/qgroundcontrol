@@ -31,10 +31,12 @@ Item {
     property bool   _isMode_FILL:       _fitMode === 2
     property bool   _isMode_NO_CROP:    _fitMode === 3
 
-    // Horizon reference line (product request): same roll/pitch convention as QGCArtificialHorizon.qml
+    // Pitch ladder (product request): same roll/pitch convention as QGCArtificialHorizon.qml
     property var    _horizonVehicle: globals.activeVehicle
     property real   _horizonRoll:    _horizonVehicle ? _horizonVehicle.roll.rawValue  : 0
     property real   _horizonPitch:   _horizonVehicle ? _horizonVehicle.pitch.rawValue : 0
+    // Shared vertical scale for the pitch ladder
+    readonly property real _pxPerDegree: root.height / 45
 
     function getWidth() {
         return videoBackground.getWidth()
@@ -45,9 +47,11 @@ Item {
 
     property double _thermalHeightFactor: 0.85 //-- TODO
 
-    // Gun-sight reticle sizing, shared between the always-on crosshair below and the no-video
-    // camera-off icon (which is sized off the same icon size).
-    readonly property real _iconSize:           ScreenTools.defaultFontPixelHeight * (useSmallFont ? 4 : 6)
+    // Icon sizing for the no-video camera-off icon, and shared sizing for the pitch ladder below.
+    readonly property real _iconSize:         ScreenTools.defaultFontPixelHeight * (useSmallFont ? 4 : 6)
+    readonly property real _hudLineThickness: ScreenTools.defaultFontPixelHeight * 0.06
+
+    // Gun-sight reticle sizing
     readonly property real _crosshairArm:       _iconSize * 0.09
     readonly property real _crosshairGap:       _iconSize * 0.055
     readonly property real _crosshairThickness: ScreenTools.defaultFontPixelHeight * 0.06
@@ -62,7 +66,7 @@ Item {
                 color:        "black"
             }
 
-            // Camera-off icon at the crosshair's center
+            // Camera-off icon at screen center
             Item {
                 anchors.centerIn:   parent
                 width:              root._iconSize
@@ -252,10 +256,106 @@ Item {
         }
     }
 
+    // Pitch ladder (product request, replaces the old single horizon reference line): a solid
+    // rung at 0° pitch (the horizon), major climb (solid) / dive (split, with a center gap -
+    // the conventional way HUD ladders tell the two apart at a glance) rungs every 10° out to
+    // ±30° with a numeral, and short unlabeled minor rungs every 5° in between (first feedback
+    // round: 10°-only steps read as too sparse on a short/wide video frame). A plain sibling of
+    // videoBackground/noVideo (not nested in either) so it always renders on top, whether or
+    // not a video stream is active. The whole ladder is one rigid body: it fills root so its
+    // own center coincides with root's, and translates with pitch / rotates around that shared
+    // center with roll, same as QGCArtificialHorizon.qml. Each rung's local y (before that
+    // transform) is fixed at -degrees * _pxPerDegree, so a rung lines up with the boresight
+    // (screen center) exactly when the vehicle's pitch matches that rung's degree value.
+    Item {
+        id:           pitchLadder
+        anchors.fill: parent
+
+        readonly property var _rungDegrees: [
+            { deg: -30, major: true  }, { deg: -25, major: false },
+            { deg: -20, major: true  }, { deg: -15, major: false },
+            { deg: -10, major: true  }, { deg: -5,  major: false },
+            { deg:   5, major: false }, { deg:  10, major: true  },
+            { deg:  15, major: false }, { deg:  20, major: true  },
+            { deg:  25, major: false }, { deg:  30, major: true  }
+        ]
+
+        transform: [
+            Translate {
+                y: _horizonPitch * _pxPerDegree
+            },
+            Rotation {
+                origin.x: pitchLadder.width  / 2
+                origin.y: pitchLadder.height / 2
+                angle:    -_horizonRoll
+            }
+        ]
+
+        // 0° rung (the horizon reference) - solid, full width, unlabeled. Same size/position
+        // the old horizonLine used, so attitude at rest looks unchanged.
+        Rectangle {
+            anchors.centerIn: parent
+            width:            root.width * 0.3
+            height:           ScreenTools.defaultFontPixelHeight * 0.1
+            color:            "red"
+        }
+
+        Repeater {
+            model: pitchLadder._rungDegrees
+
+            Item {
+                id: rung
+
+                readonly property real _degrees: modelData.deg
+                readonly property bool _major:   modelData.major
+                readonly property real _rungY:   pitchLadder.height / 2 - (_degrees * _pxPerDegree)
+
+                anchors.horizontalCenter: pitchLadder.horizontalCenter
+                y:      _rungY - height / 2
+                width:  _major ? root.width * 0.18 : root.width * 0.09
+                height: _hudLineThickness
+
+                // Climb rungs (positive pitch): one solid segment
+                Rectangle {
+                    visible:      rung._degrees > 0
+                    anchors.fill: parent
+                    color:        "red"
+                }
+                // Dive rungs (negative pitch): split with a center gap
+                Rectangle {
+                    visible:      rung._degrees < 0
+                    anchors.left: parent.left
+                    width:        parent.width / 2 - _hudLineThickness
+                    height:       parent.height
+                    color:        "red"
+                }
+                Rectangle {
+                    visible:       rung._degrees < 0
+                    anchors.right: parent.right
+                    width:         parent.width / 2 - _hudLineThickness
+                    height:        parent.height
+                    color:         "red"
+                }
+
+                Text {
+                    visible:                rung._major
+                    anchors.left:           parent.right
+                    anchors.leftMargin:     ScreenTools.defaultFontPixelWidth * 0.5
+                    anchors.verticalCenter: parent.verticalCenter
+                    text:                   Math.abs(rung._degrees)
+                    color:                  "red"
+                    font.bold:              true
+                    font.pointSize:         ScreenTools.smallFontPointSize
+                }
+            }
+        }
+    }
+
     // Small gun-sight-style reticle (4 short arms with a center gap). A plain sibling of
     // videoBackground/noVideo (not nested in either) so it always renders on top, whether or not
     // a video stream is active — previously it lived inside noVideo and vanished as soon as
-    // streaming started.
+    // streaming started. (Tried swapping this for a telemetry-driven flight path marker; reverted
+    // - not visible enough on-device to be worth the added complexity.)
     Item {
         id:             crosshair
         anchors.fill:   parent
@@ -292,27 +392,5 @@ Item {
             width:  root._crosshairArm
             color:  "red"
         }
-    }
-
-    // Red horizon reference line (product request): rotates with roll, shifts with pitch, same
-    // convention as QGCArtificialHorizon.qml. Sits above both the video and no-video states, and
-    // rotates around its own midpoint.
-    Rectangle {
-        id:               horizonLine
-        anchors.centerIn: parent
-        width:            root.width * 0.3
-        height:           ScreenTools.defaultFontPixelHeight * 0.1
-        color:            "red"
-
-        transform: [
-            Translate {
-                y: _horizonPitch * root.height / 45
-            },
-            Rotation {
-                origin.x: horizonLine.width  / 2
-                origin.y: horizonLine.height / 2
-                angle:    -_horizonRoll
-            }
-        ]
     }
 }
