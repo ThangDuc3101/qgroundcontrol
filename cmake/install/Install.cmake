@@ -5,6 +5,19 @@
 
 include(InstallRequiredSystemLibraries)
 
+# Bundle the MSVC/UCRT redistributable DLLs (ucrtbase.dll, vcruntime140.dll, msvcp140.dll, ...)
+# next to the executable so the Windows installer is self-contained. Without this, QGroundControl
+# depends on the target machine already having a compatible Universal CRT installed; Windows
+# resolves DLLs from the executable's own directory first, so shipping them here removes that
+# dependency entirely rather than just hoping the host already has them.
+if(WIN32)
+    install(
+        PROGRAMS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT Runtime
+    )
+endif()
+
 # Note: Installer generation could be conditioned on Release builds
 # if(QGC_BUILD_INSTALLER AND CMAKE_INSTALL_CONFIG_NAME MATCHES "^[Rr]elease$")
 
