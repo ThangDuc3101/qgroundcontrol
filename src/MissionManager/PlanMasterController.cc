@@ -769,7 +769,7 @@ void PlanMasterController::sendSavedPlanToServer(const QString& filename)
     QNetworkAccessManager* networkManager = QGCNetworkHelper::createNetworkManager(this);
     QNetworkReply*          reply         = networkManager->post(request, planBytes);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, networkManager]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, networkManager]() {
         if (!QGCNetworkHelper::isSuccess(reply)) {
             QGC::showAppMessage(tr("Send Plan failed: %1").arg(QGCNetworkHelper::errorMessage(reply)));
         } else {
