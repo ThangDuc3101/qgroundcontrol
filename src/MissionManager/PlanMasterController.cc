@@ -16,14 +16,33 @@
 #include "QGCCompression.h"
 #include "QGCCompressionJob.h"
 #include "QGCLoggingCategory.h"
+#include "VisualMissionItem.h"
+#include "SimpleMissionItem.h"
+#include "SpeedSection.h"
+#include "QGCNetworkHelper.h"
 
 #include <QtCore/QDir>
 #include <QtCore/QDirIterator>
 #include <QtCore/QFileInfo>
+#include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 #include <QtCore/QRegularExpression>
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkReply>
 
 QGC_LOGGING_CATEGORY(PlanMasterControllerLog, "PlanManager.PlanMasterController")
+
+namespace {
+// Custom JSON schema used by saveMissionWaypointsAsJson()/loadMissionFromJson(), distinct from QGC's
+// own .plan format. Kept in sync with the external service that consumes/produces these files.
+constexpr const char* kCustomPlanFileType = "FinalPlanWithTarget";
+constexpr double      kCustomPlanFileVersion = 12.0;
+
+// TODO: hardcoded per current deployment; move to a Settings-backed Fact if the endpoint needs to
+// become user-configurable.
+constexpr const char* kPlanUploadUrl = "http://192.168.144.30:5000/submit_plan";
+} // namespace
 
 PlanMasterController::PlanMasterController(QObject* parent)
     : QObject               (parent)
@@ -534,6 +553,235 @@ void PlanMasterController::saveToKml(const QString& filename)
         stream << planKML.toString();
         file.close();
     }
+}
+
+void PlanMasterController::saveMissionWaypointsAsJson(const QString& filename)
+{
+    if (filename.isEmpty()) {
+        return;
+    }
+
+    QmlObjectListModel* visualItems = _missionController.visualItems();
+    if (!visualItems || visualItems->count() == 0) {
+        QGC::showAppMessage(tr("Unable to save waypoints: plan is empty."));
+        return;
+    }
+
+    Vehicle* vehicle = managerVehicle();
+    if (!vehicle) {
+        QGC::showAppMessage(tr("Unable to save waypoints: no vehicle available."));
+        return;
+    }
+    const double defaultFlightSpeed = vehicle->multiRotor() ? vehicle->defaultHoverSpeed() : vehicle->defaultCruiseSpeed();
+
+    // Launch point: prefer the Takeoff item's coordinate/altitude, otherwise the first item that
+    // specifies a valid coordinate.
+    QGeoCoordinate launchCoordinate;
+    double         launchAltitude = 0.0;
+    bool           launchFound = false;
+    for (int i = 0; i < visualItems->count() && !launchFound; i++) {
+        SimpleMissionItem* simpleItem = qobject_cast<SimpleMissionItem*>(visualItems->get(i));
+        if (simpleItem && simpleItem->isTakeoffItem() && simpleItem->coordinate().isValid()) {
+            launchCoordinate = simpleItem->coordinate();
+            launchAltitude   = simpleItem->altitude()->rawValue().toDouble();
+            launchFound      = true;
+        }
+    }
+    if (!launchFound) {
+        for (int i = 0; i < visualItems->count(); i++) {
+            SimpleMissionItem* simpleItem = qobject_cast<SimpleMissionItem*>(visualItems->get(i));
+            if (simpleItem && simpleItem->specifiesCoordinate() && simpleItem->coordinate().isValid()) {
+                launchCoordinate = simpleItem->coordinate();
+                launchAltitude   = simpleItem->altitude()->rawValue().toDouble();
+                launchFound      = true;
+                break;
+            }
+        }
+    }
+
+    // Waypoints: one entry per MAV_CMD_NAV_WAYPOINT item. flight_speed is read directly from each
+    // item's own SpeedSection, never inferred from neighboring items.
+    QJsonArray waypointArray;
+    for (int i = 0; i < visualItems->count(); i++) {
+        SimpleMissionItem* simpleItem = qobject_cast<SimpleMissionItem*>(visualItems->get(i));
+        if (!simpleItem || simpleItem->mavCommand() != MAV_CMD_NAV_WAYPOINT) {
+            continue;
+        }
+
+        double flightSpeed = defaultFlightSpeed;
+        SpeedSection* speedSection = simpleItem->speedSection();
+        if (speedSection && speedSection->specifyFlightSpeed()) {
+            flightSpeed = speedSection->flightSpeed()->rawValue().toDouble();
+        }
+
+        QJsonObject waypointObject;
+        waypointObject[QStringLiteral("latitude")]     = simpleItem->coordinate().latitude();
+        waypointObject[QStringLiteral("longitude")]    = simpleItem->coordinate().longitude();
+        waypointObject[QStringLiteral("altitude")]     = simpleItem->altitude()->rawValue().toDouble();
+        waypointObject[QStringLiteral("flight_speed")] = flightSpeed;
+        waypointObject[QStringLiteral("is_target")]    = false;
+        waypointArray.append(waypointObject);
+    }
+
+    if (waypointArray.isEmpty()) {
+        QGC::showAppMessage(tr("Unable to save waypoints: plan has no waypoint items."));
+        return;
+    }
+
+    QJsonObject lastWaypoint = waypointArray.last().toObject();
+    lastWaypoint[QStringLiteral("is_target")] = true;
+    waypointArray[waypointArray.count() - 1] = lastWaypoint;
+
+    QJsonObject launchPointObject;
+    launchPointObject[QStringLiteral("latitude")]  = launchCoordinate.latitude();
+    launchPointObject[QStringLiteral("longitude")] = launchCoordinate.longitude();
+    launchPointObject[QStringLiteral("altitude")]  = launchAltitude;
+
+    QJsonObject rootObject;
+    rootObject[QStringLiteral("fileType")]     = QString(kCustomPlanFileType);
+    rootObject[QStringLiteral("version")]      = kCustomPlanFileVersion;
+    rootObject[QStringLiteral("launch_point")] = launchPointObject;
+    rootObject[QStringLiteral("waypoints")]    = waypointArray;
+
+    QFile file(filename);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QGC::showAppMessage(tr("Unable to save waypoints to %1: %2").arg(filename, file.errorString()));
+        return;
+    }
+    file.write(QJsonDocument(rootObject).toJson(QJsonDocument::Indented));
+    file.close();
+}
+
+void PlanMasterController::loadMissionFromJson(const QString& filename)
+{
+    if (filename.isEmpty()) {
+        return;
+    }
+
+    QFile file(filename);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QGC::showAppMessage(tr("Unable to open %1: %2").arg(filename, file.errorString()));
+        return;
+    }
+    QJsonParseError parseError;
+    QJsonDocument   jsonDoc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    file.close();
+    if (parseError.error != QJsonParseError::NoError || !jsonDoc.isObject()) {
+        QGC::showAppMessage(tr("Unable to parse %1: %2").arg(filename, parseError.errorString()));
+        return;
+    }
+
+    QJsonObject rootObject = jsonDoc.object();
+    if (!rootObject.value(QStringLiteral("waypoints")).isArray()) {
+        QGC::showAppMessage(tr("Unable to import %1: missing \"waypoints\" array.").arg(filename));
+        return;
+    }
+    QJsonArray waypointArray = rootObject.value(QStringLiteral("waypoints")).toArray();
+    if (waypointArray.isEmpty()) {
+        QGC::showAppMessage(tr("Unable to import %1: \"waypoints\" array is empty.").arg(filename));
+        return;
+    }
+
+    Vehicle* vehicle = managerVehicle();
+    if (!vehicle) {
+        QGC::showAppMessage(tr("Unable to import: no vehicle available."));
+        return;
+    }
+
+    // Only the mission items are replaced - GeoFence/RallyPoints are left untouched.
+    _missionController.removeAll();
+
+    // Launch/home coordinate: prefer the round-tripped "launch_point" from the file (so save->send->
+    // import->save stays stable), then the connected vehicle's live position, then the existing plan's
+    // home, then finally the first waypoint's own coordinate.
+    QGeoCoordinate launchCoordinate;
+    if (rootObject.value(QStringLiteral("launch_point")).isObject()) {
+        QJsonObject launchPointObject = rootObject.value(QStringLiteral("launch_point")).toObject();
+        launchCoordinate = QGeoCoordinate(launchPointObject.value(QStringLiteral("latitude")).toDouble(),
+                                           launchPointObject.value(QStringLiteral("longitude")).toDouble(),
+                                           launchPointObject.value(QStringLiteral("altitude")).toDouble());
+    }
+    if (!launchCoordinate.isValid() && vehicle->coordinate().isValid()) {
+        launchCoordinate = vehicle->coordinate();
+    }
+    if (!launchCoordinate.isValid() && _missionController.homePositionSet()) {
+        launchCoordinate = _missionController.plannedHomePosition();
+    }
+    if (!launchCoordinate.isValid()) {
+        QJsonObject firstWaypoint = waypointArray.first().toObject();
+        launchCoordinate = QGeoCoordinate(firstWaypoint.value(QStringLiteral("latitude")).toDouble(),
+                                           firstWaypoint.value(QStringLiteral("longitude")).toDouble());
+    }
+    _missionController.setHomePosition(launchCoordinate);
+
+    // Waypoints: rebuilt through the normal insertSimpleMissionItem()/Fact path so all of the
+    // controller's signal wiring stays consistent. flight_speed is always raw SI (m/s); a
+    // MAV_CMD_DO_CHANGE_SPEED item is only emitted (via SpeedSection) when the speed actually
+    // changes from the previous waypoint.
+    double lastFlightSpeed = qQNaN();
+    for (const QJsonValue& waypointValue : waypointArray) {
+        QJsonObject waypointObject = waypointValue.toObject();
+        if (!waypointObject.contains(QStringLiteral("latitude")) || !waypointObject.contains(QStringLiteral("longitude"))) {
+            continue;
+        }
+
+        QGeoCoordinate waypointCoordinate(waypointObject.value(QStringLiteral("latitude")).toDouble(),
+                                           waypointObject.value(QStringLiteral("longitude")).toDouble());
+        SimpleMissionItem* simpleItem = qobject_cast<SimpleMissionItem*>(_missionController.insertSimpleMissionItem(waypointCoordinate, -1 /* end of list */));
+        if (!simpleItem) {
+            continue;
+        }
+        simpleItem->altitude()->setRawValue(waypointObject.value(QStringLiteral("altitude")).toDouble());
+
+        if (waypointObject.contains(QStringLiteral("flight_speed"))) {
+            const double flightSpeed = waypointObject.value(QStringLiteral("flight_speed")).toDouble();
+            if (!qFuzzyCompare(flightSpeed, lastFlightSpeed)) {
+                SpeedSection* speedSection = simpleItem->speedSection();
+                if (speedSection) {
+                    speedSection->setSpecifyFlightSpeed(true);
+                    speedSection->flightSpeed()->setRawValue(flightSpeed);
+                }
+                lastFlightSpeed = flightSpeed;
+            }
+        }
+    }
+
+    _setDirtyStates(false /* dirtyForSave */, true /* dirtyForUpload */);
+}
+
+void PlanMasterController::sendSavedPlanToServer(const QString& filename)
+{
+    if (filename.isEmpty()) {
+        return;
+    }
+
+    QFile file(filename);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QGC::showAppMessage(tr("Unable to open %1: %2").arg(filename, file.errorString()));
+        return;
+    }
+    const QByteArray planBytes = file.readAll();
+    file.close();
+
+    QNetworkRequest request = QGCNetworkHelper::createRequest(QUrl(QString(kPlanUploadUrl)));
+    QGCNetworkHelper::setJsonHeaders(request);
+
+    QNetworkAccessManager* networkManager = QGCNetworkHelper::createNetworkManager(this);
+    QNetworkReply*          reply         = networkManager->post(request, planBytes);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, networkManager]() {
+        if (!QGCNetworkHelper::isSuccess(reply)) {
+            QGC::showAppMessage(tr("Send Plan failed: %1").arg(QGCNetworkHelper::errorMessage(reply)));
+        } else {
+            const QJsonDocument responseDoc = QGCNetworkHelper::parseJsonReply(reply);
+            const QString       message     = responseDoc.object().value(QStringLiteral("message")).toString();
+            if (!message.isEmpty()) {
+                QGC::showAppMessage(message, tr("Send Plan"));
+            }
+        }
+        reply->deleteLater();
+        networkManager->deleteLater();
+    });
 }
 
 void PlanMasterController::removeAll(void)

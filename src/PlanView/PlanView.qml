@@ -156,6 +156,24 @@ Item {
             fileDialog.nameFilters =    ShapeFileHelper.fileDialogKMLFilters
             fileDialog.openForSave()
         }
+
+        function saveMissionWaypointsAsJsonToSelectedFile() {
+            customPlanJsonDialog.title = qsTr("Save Mission Waypoints JSON")
+            customPlanJsonDialog.mode  = 0
+            customPlanJsonDialog.openForSave()
+        }
+
+        function loadMissionFromSelectedJsonFile() {
+            customPlanJsonDialog.title = qsTr("Import Mission Waypoints JSON")
+            customPlanJsonDialog.mode  = 1
+            customPlanJsonDialog.openForLoad()
+        }
+
+        function sendSavedPlanToServerFromSelectedFile() {
+            customPlanJsonDialog.title = qsTr("Select Plan JSON To Send")
+            customPlanJsonDialog.mode  = 2
+            customPlanJsonDialog.openForLoad()
+        }
     }
 
     Connections {
@@ -220,6 +238,30 @@ Item {
             _planMasterController.loadFromFile(file)
             _planMasterController.fitViewportToItems()
             _missionController.setCurrentPlanViewSeqNum(0, true)
+            close()
+        }
+    }
+
+    QGCFileDialog {
+        id: customPlanJsonDialog
+        folder:      _appSettings ? _appSettings.missionSavePath : ""
+        nameFilters: [ qsTr("JSON files (*.json)") ]
+
+        property int mode: 0 ///< 0: save waypoints JSON, 1: import waypoints JSON, 2: select JSON to send
+
+        onAcceptedForSave: (file) => {
+            _planMasterController.saveMissionWaypointsAsJson(file)
+            close()
+        }
+
+        onAcceptedForLoad: (file) => {
+            if (mode === 1) {
+                _planMasterController.loadMissionFromJson(file)
+                _planMasterController.fitViewportToItems()
+                _missionController.setCurrentPlanViewSeqNum(0, true)
+            } else {
+                _planMasterController.sendSavedPlanToServer(file)
+            }
             close()
         }
     }

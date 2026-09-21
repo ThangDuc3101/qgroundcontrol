@@ -94,6 +94,20 @@ public:
     Q_INVOKABLE bool saveToFile(const QString& filename);
     Q_INVOKABLE void saveToKml(const QString& filename);
 
+    /// Exports the waypoints (MAV_CMD_NAV_WAYPOINT items) of the currently open plan to a custom JSON
+    /// file (launch_point + waypoints[], flight_speed always in raw m/s) for consumption by an external service.
+    ///     @param filename File to write to
+    Q_INVOKABLE void saveMissionWaypointsAsJson(const QString& filename);
+
+    /// Replaces the current plan's mission items with waypoints loaded from a custom JSON file
+    /// previously written by saveMissionWaypointsAsJson(). GeoFence/RallyPoints are left untouched.
+    ///     @param filename File to read from
+    Q_INVOKABLE void loadMissionFromJson(const QString& filename);
+
+    /// Posts the raw contents of a previously saved custom JSON plan file to the upload server.
+    ///     @param filename File to send
+    Q_INVOKABLE void sendSavedPlanToServer(const QString& filename);
+
     Q_INVOKABLE bool saveWithCurrentName(); ///< Save using the (possibly renamed) currentPlanFileName
     Q_INVOKABLE bool resolvedPlanFileExists() const; ///< true if a file at the renamed path already exists on disk
     Q_INVOKABLE void removeAll(void); ///< Removes all from controller only, sync required to remove from vehicle

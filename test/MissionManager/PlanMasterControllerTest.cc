@@ -1,6 +1,7 @@
 #include "PlanMasterControllerTest.h"
 
 #include "AppSettings.h"
+#include "CoordFixtures.h"
 #include "SurveyPlanCreator.h"
 #include "MissionManager.h"
 #include "MultiSignalSpy.h"
@@ -8,15 +9,27 @@
 #include "PlanMasterController.h"
 #include "QmlObjectListModel.h"
 #include "SettingsManager.h"
+#include "SimpleMissionItem.h"
+#include "SpeedSection.h"
 #include "TakeoffMissionItem.h"
 #include "Vehicle.h"
 
 #include <QtCore/QDateTime>
 #include <QtCore/QDir>
 #include <QtCore/QFile>
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QTemporaryDir>
 #include <QtTest/QSignalSpy>
+
+using namespace TestFixtures;
+
+namespace {
+constexpr double kCoordToleranceMeters = 0.5;
+constexpr double kValueTolerance = 0.001;
+} // namespace
 
 void PlanMasterControllerTest::init()
 {
@@ -644,6 +657,208 @@ void PlanMasterControllerTest::_testPlanCreatorsFiltered()
     QVERIFY(fixedWingCount > 0);
 
     QCOMPARE(fixedWingCount, multiRotorCount - 1);
+}
+
+void PlanMasterControllerTest::_testSaveMissionWaypointsAsJson()
+{
+    MissionController* missionController = _masterController->missionController();
+
+    // insertTakeoffItem() ignores its coordinate argument and derives position from home instead
+    // (see MissionController::insertTakeoffItem) - set it explicitly so the test is deterministic.
+    TakeoffMissionItem* takeoffItem = qobject_cast<TakeoffMissionItem*>(missionController->insertTakeoffItem(Coord::zurich(), 1));
+    QVERIFY(takeoffItem);
+    takeoffItem->setCoordinate(Coord::zurich());
+    takeoffItem->altitude()->setRawValue(100.0);
+
+    SimpleMissionItem* wp1 = qobject_cast<SimpleMissionItem*>(missionController->insertSimpleMissionItem(Coord::seattle(), 2));
+    QVERIFY(wp1);
+    wp1->altitude()->setRawValue(50.0);
+    wp1->speedSection()->setSpecifyFlightSpeed(true);
+    wp1->speedSection()->flightSpeed()->setRawValue(7.5);
+
+    SimpleMissionItem* wp2 = qobject_cast<SimpleMissionItem*>(missionController->insertSimpleMissionItem(Coord::sanFrancisco(), 3));
+    QVERIFY(wp2);
+    wp2->altitude()->setRawValue(75.0);
+    // wp2 leaves speedSection unspecified: exercises the fallback to the vehicle's own default speed
+    // (hover for multi-rotor, cruise otherwise) rather than inferring it from a neighboring item.
+    // Captured immediately before save() so it reflects exactly the value the code under test will read.
+    Vehicle*     vehicle = _masterController->managerVehicle();
+    const double expectedFallbackSpeed = vehicle->multiRotor() ? vehicle->defaultHoverSpeed() : vehicle->defaultCruiseSpeed();
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString filename = tempDir.filePath(QStringLiteral("waypoints.json"));
+
+    _masterController->saveMissionWaypointsAsJson(filename);
+
+    QFile file(filename);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    file.close();
+    QCOMPARE(parseError.error, QJsonParseError::NoError);
+    QVERIFY(doc.isObject());
+
+    const QJsonObject root = doc.object();
+    QCOMPARE(root.value(QStringLiteral("fileType")).toString(), QStringLiteral("FinalPlanWithTarget"));
+    QCOMPARE(root.value(QStringLiteral("version")).toDouble(), 12.0);
+
+    const QJsonObject launchPoint = root.value(QStringLiteral("launch_point")).toObject();
+    const QGeoCoordinate launchCoord(launchPoint.value(QStringLiteral("latitude")).toDouble(),
+                                      launchPoint.value(QStringLiteral("longitude")).toDouble());
+    QVERIFY(launchCoord.distanceTo(Coord::zurich()) <= kCoordToleranceMeters);
+    QVERIFY(qAbs(launchPoint.value(QStringLiteral("altitude")).toDouble() - 100.0) < kValueTolerance);
+
+    const QJsonArray waypoints = root.value(QStringLiteral("waypoints")).toArray();
+    QCOMPARE(waypoints.count(), 2);
+
+    const QJsonObject jsonWp1 = waypoints.at(0).toObject();
+    const QGeoCoordinate wp1Coord(jsonWp1.value(QStringLiteral("latitude")).toDouble(), jsonWp1.value(QStringLiteral("longitude")).toDouble());
+    QVERIFY(wp1Coord.distanceTo(Coord::seattle()) <= kCoordToleranceMeters);
+    QVERIFY(qAbs(jsonWp1.value(QStringLiteral("altitude")).toDouble() - 50.0) < kValueTolerance);
+    QVERIFY(qAbs(jsonWp1.value(QStringLiteral("flight_speed")).toDouble() - 7.5) < kValueTolerance);
+    QCOMPARE(jsonWp1.value(QStringLiteral("is_target")).toBool(), false);
+
+    const QJsonObject jsonWp2 = waypoints.at(1).toObject();
+    const QGeoCoordinate wp2Coord(jsonWp2.value(QStringLiteral("latitude")).toDouble(), jsonWp2.value(QStringLiteral("longitude")).toDouble());
+    QVERIFY(wp2Coord.distanceTo(Coord::sanFrancisco()) <= kCoordToleranceMeters);
+    QVERIFY(qAbs(jsonWp2.value(QStringLiteral("altitude")).toDouble() - 75.0) < kValueTolerance);
+    QVERIFY(qAbs(jsonWp2.value(QStringLiteral("flight_speed")).toDouble() - expectedFallbackSpeed) < kValueTolerance);
+    QCOMPARE(jsonWp2.value(QStringLiteral("is_target")).toBool(), true);
+}
+
+void PlanMasterControllerTest::_testSaveMissionWaypointsAsJsonRejectsPlanWithoutWaypoints()
+{
+    // Fresh plan only has the Mission Settings item, no MAV_CMD_NAV_WAYPOINT items to export.
+    ignoreLogMessage("API.QGCApplication.AppMessage", QtDebugMsg, QRegularExpression("no waypoint items"));
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString filename = tempDir.filePath(QStringLiteral("empty.json"));
+
+    _masterController->saveMissionWaypointsAsJson(filename);
+
+    QVERIFY(!QFile::exists(filename));
+}
+
+void PlanMasterControllerTest::_testLoadMissionFromJsonUsesLaunchPointAndDedupesSpeed()
+{
+    QJsonObject launchPoint;
+    launchPoint[QStringLiteral("latitude")] = 47.0;
+    launchPoint[QStringLiteral("longitude")] = 8.0;
+    launchPoint[QStringLiteral("altitude")] = 400.0;
+
+    // wp1->wp2 keep the same flight_speed (should NOT re-specify it), wp2->wp3 changes (should).
+    QJsonArray waypoints;
+    for (const auto& wp : { std::tuple(47.1, 8.1, 50.0, 5.0), std::tuple(47.2, 8.2, 60.0, 5.0), std::tuple(47.3, 8.3, 70.0, 8.0) }) {
+        QJsonObject wpObject;
+        wpObject[QStringLiteral("latitude")] = std::get<0>(wp);
+        wpObject[QStringLiteral("longitude")] = std::get<1>(wp);
+        wpObject[QStringLiteral("altitude")] = std::get<2>(wp);
+        wpObject[QStringLiteral("flight_speed")] = std::get<3>(wp);
+        waypoints.append(wpObject);
+    }
+
+    QJsonObject root;
+    root[QStringLiteral("fileType")] = QStringLiteral("FinalPlanWithTarget");
+    root[QStringLiteral("version")] = 12.0;
+    root[QStringLiteral("launch_point")] = launchPoint;
+    root[QStringLiteral("waypoints")] = waypoints;
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString filename = tempDir.filePath(QStringLiteral("import.json"));
+    QFile file(filename);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write(QJsonDocument(root).toJson()) != -1);
+    file.close();
+
+    _masterController->loadMissionFromJson(filename);
+
+    MissionController* missionController = _masterController->missionController();
+    QVERIFY(missionController->plannedHomePosition().distanceTo(QGeoCoordinate(47.0, 8.0)) <= kCoordToleranceMeters);
+    QVERIFY(qAbs(missionController->plannedHomePosition().altitude() - 400.0) < kValueTolerance);
+
+    QmlObjectListModel* visualItems = missionController->visualItems();
+    QCOMPARE(visualItems->count(), 4); // Mission settings + 3 waypoints
+
+    SimpleMissionItem* item1 = qobject_cast<SimpleMissionItem*>(visualItems->get(1));
+    QVERIFY(item1);
+    QVERIFY(item1->coordinate().distanceTo(QGeoCoordinate(47.1, 8.1)) <= kCoordToleranceMeters);
+    QVERIFY(qAbs(item1->altitude()->rawValue().toDouble() - 50.0) < kValueTolerance);
+    QVERIFY(item1->speedSection()->specifyFlightSpeed()); // First waypoint always specifies its speed.
+    QVERIFY(qAbs(item1->speedSection()->flightSpeed()->rawValue().toDouble() - 5.0) < kValueTolerance);
+
+    SimpleMissionItem* item2 = qobject_cast<SimpleMissionItem*>(visualItems->get(2));
+    QVERIFY(item2);
+    QVERIFY(item2->coordinate().distanceTo(QGeoCoordinate(47.2, 8.2)) <= kCoordToleranceMeters);
+    QVERIFY(!item2->speedSection()->specifyFlightSpeed()); // Same speed as item1: no redundant DO_CHANGE_SPEED.
+
+    SimpleMissionItem* item3 = qobject_cast<SimpleMissionItem*>(visualItems->get(3));
+    QVERIFY(item3);
+    QVERIFY(item3->coordinate().distanceTo(QGeoCoordinate(47.3, 8.3)) <= kCoordToleranceMeters);
+    QVERIFY(item3->speedSection()->specifyFlightSpeed()); // Speed changed from item2: must be specified.
+    QVERIFY(qAbs(item3->speedSection()->flightSpeed()->rawValue().toDouble() - 8.0) < kValueTolerance);
+}
+
+void PlanMasterControllerTest::_testLoadMissionFromJsonFallsBackToFirstWaypointWhenNoLaunchPoint()
+{
+    // No "launch_point" key. The offline controller vehicle has no live coordinate and the plan
+    // has no home set yet, so this must fall all the way back to the first waypoint's own coordinate.
+    QJsonObject waypoint;
+    waypoint[QStringLiteral("latitude")] = 10.0;
+    waypoint[QStringLiteral("longitude")] = 20.0;
+    waypoint[QStringLiteral("altitude")] = 30.0;
+
+    QJsonArray waypoints;
+    waypoints.append(waypoint);
+
+    QJsonObject root;
+    root[QStringLiteral("waypoints")] = waypoints;
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString filename = tempDir.filePath(QStringLiteral("no_launch_point.json"));
+    QFile file(filename);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write(QJsonDocument(root).toJson()) != -1);
+    file.close();
+
+    QVERIFY(!_masterController->managerVehicle()->coordinate().isValid());
+    QVERIFY(!_masterController->missionController()->homePositionSet());
+
+    _masterController->loadMissionFromJson(filename);
+
+    QVERIFY(_masterController->missionController()->plannedHomePosition().distanceTo(QGeoCoordinate(10.0, 20.0)) <= kCoordToleranceMeters);
+}
+
+void PlanMasterControllerTest::_testLoadMissionFromJsonRejectsMissingWaypointsArray()
+{
+    QJsonObject root;
+    root[QStringLiteral("fileType")] = QStringLiteral("FinalPlanWithTarget");
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString filename = tempDir.filePath(QStringLiteral("no_waypoints.json"));
+    QFile file(filename);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write(QJsonDocument(root).toJson()) != -1);
+    file.close();
+
+    ignoreLogMessage("API.QGCApplication.AppMessage", QtDebugMsg, QRegularExpression("waypoints.*array"));
+
+    _masterController->loadMissionFromJson(filename);
+
+    // Plan must be left untouched: only the Mission Settings item, nothing removed or added.
+    QCOMPARE(_masterController->missionController()->visualItems()->count(), 1);
+}
+
+void PlanMasterControllerTest::_testSendSavedPlanToServerMissingFileShowsError()
+{
+    ignoreLogMessage("API.QGCApplication.AppMessage", QtDebugMsg, QRegularExpression("Unable to open"));
+
+    // File-open failure returns before any network request is made - safe to run without a server.
+    _masterController->sendSavedPlanToServer(QStringLiteral("/nonexistent/path/plan.json"));
 }
 
 #include "UnitTest.h"

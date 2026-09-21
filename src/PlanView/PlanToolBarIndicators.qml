@@ -113,6 +113,17 @@ RowLayout {
         }
     }
 
+    function _importMissionJsonClicked() {
+        if (_saveDirty || _uploadDirty) {
+            QGroundControl.showMessageDialog(root, qsTr("Import Mission Waypoints JSON"),
+                                        qsTr("You have unsaved/unsent changes. Importing waypoints will lose these changes. Are you sure?"),
+                                        Dialog.Yes | Dialog.Cancel,
+                                        function() { _planMasterController.loadMissionFromSelectedJsonFile() } )
+        } else {
+            _planMasterController.loadMissionFromSelectedJsonFile()
+        }
+    }
+
     QGCPalette { id: qgcPal }
 
     QGCButton {
@@ -199,6 +210,39 @@ RowLayout {
                         onClicked: {
                             dropPanel.close()
                             _downloadClicked()
+                        }
+                    }
+
+                    QGCButton {
+                        Layout.fillWidth: true
+                        text: qsTr("Save Mission Waypoints JSON")
+                        enabled: !_syncInProgress && _hasPlanItems
+
+                        onClicked: {
+                            dropPanel.close()
+                            _planMasterController.saveMissionWaypointsAsJsonToSelectedFile()
+                        }
+                    }
+
+                    QGCButton {
+                        Layout.fillWidth: true
+                        text: qsTr("Import Mission Waypoints JSON")
+                        enabled: !_syncInProgress
+
+                        onClicked: {
+                            dropPanel.close()
+                            _importMissionJsonClicked()
+                        }
+                    }
+
+                    QGCButton {
+                        Layout.fillWidth: true
+                        text: qsTr("Send Plan To Server")
+                        enabled: !_syncInProgress
+
+                        onClicked: {
+                            dropPanel.close()
+                            _planMasterController.sendSavedPlanToServerFromSelectedFile()
                         }
                     }
                 }
