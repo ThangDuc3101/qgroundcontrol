@@ -54,12 +54,17 @@ jobs:
       matrix:
         include:
           - arch: linux_gcc_arm64
-            runs_on: ${{ github.repository_owner == 'mavlink' && format('runs-on={0}/runner=linux-arm64-builder', github.run_id) || 'ubuntu-24.04-arm' }}
+            # ubuntu-22.04-arm (not -24.04-arm): AppImages don't bundle glibc, so building
+            # on the oldest still-hosted Ubuntu keeps the glibc floor (2.35) low enough to
+            # run on common LTS desktops — 24.04's glibc 2.39 requirement broke this on
+            # plain Ubuntu 22.04 hosts. Fork-only; mavlink's own runner is unaffected.
+            runs_on: ${{ github.repository_owner == 'mavlink' && format('runs-on={0}/runner=linux-arm64-builder', github.run_id) || 'ubuntu-22.04-arm' }}
             package: QGroundControl-aarch64
             host: linux_arm64
 
           - arch: linux_gcc_64
-            runs_on: ${{ github.repository_owner == 'mavlink' && format('runs-on={0}/runner=linux-x64-builder-60gb', github.run_id) || 'ubuntu-24.04' }}
+            # See the arm64 leg's comment above for why this is 22.04, not 24.04.
+            runs_on: ${{ github.repository_owner == 'mavlink' && format('runs-on={0}/runner=linux-x64-builder-60gb', github.run_id) || 'ubuntu-22.04' }}
             package: QGroundControl-x86_64
             host: linux
 
