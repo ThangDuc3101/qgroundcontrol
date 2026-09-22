@@ -701,7 +701,8 @@ void PlanMasterControllerTest::_testSaveMissionWaypointsAsJson()
 
     const QJsonObject root = doc.object();
     QCOMPARE(root.value(QStringLiteral("fileType")).toString(), QStringLiteral("FinalPlanWithTarget"));
-    QCOMPARE(root.value(QStringLiteral("version")).toDouble(), 12.0);
+    QCOMPARE(root.value(QStringLiteral("version")).toDouble(), 13.0);
+    QCOMPARE(root.value(QStringLiteral("flight_speed_units")).toString(), QStringLiteral("km/h"));
 
     const QJsonObject launchPoint = root.value(QStringLiteral("launch_point")).toObject();
     const QGeoCoordinate launchCoord(launchPoint.value(QStringLiteral("latitude")).toDouble(),
@@ -716,14 +717,15 @@ void PlanMasterControllerTest::_testSaveMissionWaypointsAsJson()
     const QGeoCoordinate wp1Coord(jsonWp1.value(QStringLiteral("latitude")).toDouble(), jsonWp1.value(QStringLiteral("longitude")).toDouble());
     QVERIFY(wp1Coord.distanceTo(Coord::seattle()) <= kCoordToleranceMeters);
     QVERIFY(qAbs(jsonWp1.value(QStringLiteral("altitude")).toDouble() - 50.0) < kValueTolerance);
-    QVERIFY(qAbs(jsonWp1.value(QStringLiteral("flight_speed")).toDouble() - 7.5) < kValueTolerance);
+    // flight_speed is written in km/h (see kMetersPerSecondToKmPerHour): 7.5 m/s -> 27.0 km/h.
+    QVERIFY(qAbs(jsonWp1.value(QStringLiteral("flight_speed")).toDouble() - 27.0) < kValueTolerance);
     QCOMPARE(jsonWp1.value(QStringLiteral("is_target")).toBool(), false);
 
     const QJsonObject jsonWp2 = waypoints.at(1).toObject();
     const QGeoCoordinate wp2Coord(jsonWp2.value(QStringLiteral("latitude")).toDouble(), jsonWp2.value(QStringLiteral("longitude")).toDouble());
     QVERIFY(wp2Coord.distanceTo(Coord::sanFrancisco()) <= kCoordToleranceMeters);
     QVERIFY(qAbs(jsonWp2.value(QStringLiteral("altitude")).toDouble() - 75.0) < kValueTolerance);
-    QVERIFY(qAbs(jsonWp2.value(QStringLiteral("flight_speed")).toDouble() - expectedFallbackSpeed) < kValueTolerance);
+    QVERIFY(qAbs(jsonWp2.value(QStringLiteral("flight_speed")).toDouble() - expectedFallbackSpeed * 3.6) < kValueTolerance);
     QCOMPARE(jsonWp2.value(QStringLiteral("is_target")).toBool(), true);
 }
 
@@ -743,6 +745,9 @@ void PlanMasterControllerTest::_testSaveMissionWaypointsAsJsonRejectsPlanWithout
 
 void PlanMasterControllerTest::_testLoadMissionFromJsonUsesLaunchPointAndDedupesSpeed()
 {
+    // No "flight_speed_units" field - exercises backward compatibility with files written before
+    // flight_speed switched to km/h (version < 13): flight_speed here must be taken as raw SI (m/s)
+    // with no conversion applied.
     QJsonObject launchPoint;
     launchPoint[QStringLiteral("latitude")] = 47.0;
     launchPoint[QStringLiteral("longitude")] = 8.0;
@@ -799,6 +804,50 @@ void PlanMasterControllerTest::_testLoadMissionFromJsonUsesLaunchPointAndDedupes
     QVERIFY(item3->coordinate().distanceTo(QGeoCoordinate(47.3, 8.3)) <= kCoordToleranceMeters);
     QVERIFY(item3->speedSection()->specifyFlightSpeed()); // Speed changed from item2: must be specified.
     QVERIFY(qAbs(item3->speedSection()->flightSpeed()->rawValue().toDouble() - 8.0) < kValueTolerance);
+}
+
+void PlanMasterControllerTest::_testLoadMissionFromJsonConvertsKmhFlightSpeed()
+{
+    // "flight_speed_units": "km/h" (file version >= 13) - flight_speed must be converted back to
+    // raw SI (m/s) on import: 18.0 km/h -> 5.0 m/s.
+    QJsonObject launchPoint;
+    launchPoint[QStringLiteral("latitude")] = 47.0;
+    launchPoint[QStringLiteral("longitude")] = 8.0;
+    launchPoint[QStringLiteral("altitude")] = 400.0;
+
+    QJsonObject waypoint;
+    waypoint[QStringLiteral("latitude")] = 47.1;
+    waypoint[QStringLiteral("longitude")] = 8.1;
+    waypoint[QStringLiteral("altitude")] = 50.0;
+    waypoint[QStringLiteral("flight_speed")] = 18.0;
+
+    QJsonArray waypoints;
+    waypoints.append(waypoint);
+
+    QJsonObject root;
+    root[QStringLiteral("fileType")] = QStringLiteral("FinalPlanWithTarget");
+    root[QStringLiteral("version")] = 13.0;
+    root[QStringLiteral("flight_speed_units")] = QStringLiteral("km/h");
+    root[QStringLiteral("launch_point")] = launchPoint;
+    root[QStringLiteral("waypoints")] = waypoints;
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString filename = tempDir.filePath(QStringLiteral("import_kmh.json"));
+    QFile file(filename);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write(QJsonDocument(root).toJson()) != -1);
+    file.close();
+
+    _masterController->loadMissionFromJson(filename);
+
+    QmlObjectListModel* visualItems = _masterController->missionController()->visualItems();
+    QCOMPARE(visualItems->count(), 2); // Mission settings + 1 waypoint
+
+    SimpleMissionItem* item1 = qobject_cast<SimpleMissionItem*>(visualItems->get(1));
+    QVERIFY(item1);
+    QVERIFY(item1->speedSection()->specifyFlightSpeed());
+    QVERIFY(qAbs(item1->speedSection()->flightSpeed()->rawValue().toDouble() - 5.0) < kValueTolerance);
 }
 
 void PlanMasterControllerTest::_testLoadMissionFromJsonFallsBackToFirstWaypointWhenNoLaunchPoint()

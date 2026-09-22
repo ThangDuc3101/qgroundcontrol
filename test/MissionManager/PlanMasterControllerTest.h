@@ -46,6 +46,7 @@ private slots:
     void _testSaveMissionWaypointsAsJson();
     void _testSaveMissionWaypointsAsJsonRejectsPlanWithoutWaypoints();
     void _testLoadMissionFromJsonUsesLaunchPointAndDedupesSpeed();
+    void _testLoadMissionFromJsonConvertsKmhFlightSpeed();
     void _testLoadMissionFromJsonFallsBackToFirstWaypointWhenNoLaunchPoint();
     void _testLoadMissionFromJsonRejectsMissingWaypointsArray();
     void _testSendSavedPlanToServerMissingFileShowsError();

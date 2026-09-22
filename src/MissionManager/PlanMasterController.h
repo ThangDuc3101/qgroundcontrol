@@ -95,7 +95,8 @@ public:
     Q_INVOKABLE void saveToKml(const QString& filename);
 
     /// Exports the waypoints (MAV_CMD_NAV_WAYPOINT items) of the currently open plan to a custom JSON
-    /// file (launch_point + waypoints[], flight_speed always in raw m/s) for consumption by an external service.
+    /// file (launch_point + waypoints[], flight_speed always in km/h, see "flight_speed_units") for
+    /// consumption by an external service.
     ///     @param filename File to write to
     Q_INVOKABLE void saveMissionWaypointsAsJson(const QString& filename);
 

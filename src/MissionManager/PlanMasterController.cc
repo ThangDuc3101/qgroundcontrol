@@ -37,7 +37,11 @@ namespace {
 // Custom JSON schema used by saveMissionWaypointsAsJson()/loadMissionFromJson(), distinct from QGC's
 // own .plan format. Kept in sync with the external service that consumes/produces these files.
 constexpr const char* kCustomPlanFileType = "FinalPlanWithTarget";
-constexpr double      kCustomPlanFileVersion = 12.0;
+// Bumped from 12.0: flight_speed switched from raw SI (m/s) to km/h (see kFlightSpeedUnitsKmh) -
+// a semantic change to an existing field, not just an addition, so consumers can branch on it.
+constexpr double      kCustomPlanFileVersion = 13.0;
+constexpr const char* kFlightSpeedUnitsKmh = "km/h";
+constexpr double      kMetersPerSecondToKmPerHour = 3.6;
 
 // TODO: hardcoded per current deployment; move to a Settings-backed Fact if the endpoint needs to
 // become user-configurable.
@@ -618,7 +622,7 @@ void PlanMasterController::saveMissionWaypointsAsJson(const QString& filename)
         waypointObject[QStringLiteral("latitude")]     = simpleItem->coordinate().latitude();
         waypointObject[QStringLiteral("longitude")]    = simpleItem->coordinate().longitude();
         waypointObject[QStringLiteral("altitude")]     = simpleItem->altitude()->rawValue().toDouble();
-        waypointObject[QStringLiteral("flight_speed")] = flightSpeed;
+        waypointObject[QStringLiteral("flight_speed")] = flightSpeed * kMetersPerSecondToKmPerHour;
         waypointObject[QStringLiteral("is_target")]    = false;
         waypointArray.append(waypointObject);
     }
@@ -638,10 +642,11 @@ void PlanMasterController::saveMissionWaypointsAsJson(const QString& filename)
     launchPointObject[QStringLiteral("altitude")]  = launchAltitude;
 
     QJsonObject rootObject;
-    rootObject[QStringLiteral("fileType")]     = QString(kCustomPlanFileType);
-    rootObject[QStringLiteral("version")]      = kCustomPlanFileVersion;
-    rootObject[QStringLiteral("launch_point")] = launchPointObject;
-    rootObject[QStringLiteral("waypoints")]    = waypointArray;
+    rootObject[QStringLiteral("fileType")]           = QString(kCustomPlanFileType);
+    rootObject[QStringLiteral("version")]            = kCustomPlanFileVersion;
+    rootObject[QStringLiteral("flight_speed_units")] = QString(kFlightSpeedUnitsKmh);
+    rootObject[QStringLiteral("launch_point")]       = launchPointObject;
+    rootObject[QStringLiteral("waypoints")]          = waypointArray;
 
     QFile file(filename);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -715,9 +720,15 @@ void PlanMasterController::loadMissionFromJson(const QString& filename)
     _missionController.setHomePosition(launchCoordinate);
 
     // Waypoints: rebuilt through the normal insertSimpleMissionItem()/Fact path so all of the
-    // controller's signal wiring stays consistent. flight_speed is always raw SI (m/s); a
-    // MAV_CMD_DO_CHANGE_SPEED item is only emitted (via SpeedSection) when the speed actually
-    // changes from the previous waypoint.
+    // controller's signal wiring stays consistent. A MAV_CMD_DO_CHANGE_SPEED item is only emitted
+    // (via SpeedSection) when the speed actually changes from the previous waypoint.
+    //
+    // flight_speed is km/h as of file version 13 ("flight_speed_units": "km/h"); older files from
+    // before that change have no "flight_speed_units" field at all and are raw SI (m/s) - convert
+    // only when the file explicitly says km/h, so pre-existing files still import correctly.
+    const double flightSpeedToRawFactor = (rootObject.value(QStringLiteral("flight_speed_units")).toString() == QLatin1String(kFlightSpeedUnitsKmh))
+        ? (1.0 / kMetersPerSecondToKmPerHour)
+        : 1.0;
     double lastFlightSpeed = qQNaN();
     for (const QJsonValue& waypointValue : waypointArray) {
         QJsonObject waypointObject = waypointValue.toObject();
@@ -734,7 +745,7 @@ void PlanMasterController::loadMissionFromJson(const QString& filename)
         simpleItem->altitude()->setRawValue(waypointObject.value(QStringLiteral("altitude")).toDouble());
 
         if (waypointObject.contains(QStringLiteral("flight_speed"))) {
-            const double flightSpeed = waypointObject.value(QStringLiteral("flight_speed")).toDouble();
+            const double flightSpeed = waypointObject.value(QStringLiteral("flight_speed")).toDouble() * flightSpeedToRawFactor;
             if (!qFuzzyCompare(flightSpeed, lastFlightSpeed)) {
                 SpeedSection* speedSection = simpleItem->speedSection();
                 if (speedSection) {
