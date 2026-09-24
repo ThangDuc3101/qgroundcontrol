@@ -235,6 +235,77 @@ Item {
         z:                  QGroundControl.zOrderTopMost
     }
 
+    // Operator message from the external UAV info server (Vehicle::uavInfoReceived), auto-hides after 5s.
+    // Top-center rather than top-right: the top-right slot holds the compass/attitude instrument panel.
+    Rectangle {
+        id:                         uavMessageContainer
+        anchors.top:                parent.top
+        anchors.topMargin:          ScreenTools.defaultFontPixelHeight * 0.5
+        anchors.horizontalCenter:   parent.horizontalCenter
+        width:                      uavMessageLabel.implicitWidth + (_margins * 4)
+        height:                     uavMessageLabel.implicitHeight + (_margins * 2)
+        color:                      Qt.rgba(0.8, 0, 0, 0.9)
+        border.color:               _uavMessageAccentRed
+        border.width:               3
+        radius:                     8
+        z:                          QGroundControl.zOrderWidgets
+        visible:                    uavMessageLabel.text !== ""
+
+        readonly property color _uavMessageAccentRed: "#ff0000"
+
+        // 2 "glow" outlines
+        Rectangle {
+            anchors.fill:       parent
+            anchors.margins:    -4
+            color:              "transparent"
+            border.color:       parent._uavMessageAccentRed
+            border.width:       2
+            radius:             parent.radius + 2
+            opacity:            0.4
+            z:                  -1
+        }
+        Rectangle {
+            anchors.fill:       parent
+            anchors.margins:    -8
+            color:              "transparent"
+            border.color:       parent._uavMessageAccentRed
+            border.width:       1
+            radius:             parent.radius + 4
+            opacity:            0.2
+            z:                  -2
+        }
+
+        QGCLabel {
+            id:                 uavMessageLabel
+            anchors.centerIn:   parent
+            font.pointSize:     ScreenTools.defaultFontPointSize * 2
+            font.bold:          true
+            font.family:        "Monospace"
+            color:              "#ffffff"
+            text:               ""
+
+            Connections {
+                target:                 _activeVehicle
+                ignoreUnknownSignals:   true
+                function onUavInfoReceived(boardStatus, message) {
+                    if (message) {
+                        uavMessageLabel.text = message
+                    }
+                }
+            }
+
+            Timer {
+                id:             hideMessageTimer
+                interval:       5000
+                running:        uavMessageLabel.text !== ""
+                repeat:         false
+                onTriggered:    uavMessageLabel.text = ""
+            }
+
+            onTextChanged: if (text !== "") hideMessageTimer.restart()
+        }
+    }
+
     MapScale {
         id:                 mapScale
         anchors.left:       parent.left

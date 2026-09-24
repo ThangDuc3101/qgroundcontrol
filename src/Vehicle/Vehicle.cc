@@ -84,6 +84,12 @@
 #endif
 
 #include <QtCore/QDateTime>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+#include <QtCore/QJsonParseError>
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkReply>
+#include <QtNetwork/QNetworkRequest>
 
 QGC_LOGGING_CATEGORY(VehicleLog, "Vehicle.Vehicle")
 
@@ -172,6 +178,17 @@ Vehicle::Vehicle(LinkInterface*             link,
     connect(&_csvLogTimer, &QTimer::timeout, this, &Vehicle::_writeCsvLine);
     _csvLogTimer.start(1000);
 
+    // External UAV info server: board (fuze) status + operator message, polled over HTTP
+    _networkManager = new QNetworkAccessManager(this);
+    _requestTimer   = new QTimer(this);
+
+    connect(_requestTimer,   &QTimer::timeout,                 this, &Vehicle::_sendRequest);
+    connect(_networkManager, &QNetworkAccessManager::finished, this, &Vehicle::_requestFinished);
+
+    if (!QGC::runningUnitTests()) {
+        // GetUAVInfo("http://127.0.0.1:5000/uav_info", 1);   // test local
+        GetUAVInfo("http://192.168.144.30:5000/uav_info", 1);
+    }
 }
 
 // Disconnected Vehicle for offline editing
@@ -469,6 +486,78 @@ void Vehicle::_stopCommandProcessing()
     }
     _sendMultipleTimer.stop();
     _sendMultipleTimer.disconnect();
+
+    // Stop UAV info polling so a pending reply can't reach a vehicle being deleted
+    if (_requestTimer) {
+        _requestTimer->stop();
+    }
+    if (_networkManager) {
+        disconnect(_networkManager, nullptr, this, nullptr);
+        _networkManager->clearAccessCache();
+    }
+}
+
+void Vehicle::GetUAVInfo(const QString& url, int freq)
+{
+    _requestUrl = QUrl(url);
+    if (!_requestUrl.isValid()) {
+        qCWarning(VehicleLog) << "Invalid UAV info URL:" << url;
+        return;
+    }
+    if (freq > 0) {
+        _requestTimer->start(1000 / freq);
+    } else {
+        qCWarning(VehicleLog) << "UAV info poll frequency must be greater than 0";
+    }
+}
+
+void Vehicle::_sendRequest()
+{
+    if (!_requestUrl.isValid()) {
+        return;
+    }
+    QNetworkRequest request(_requestUrl);
+    _networkManager->get(request);
+}
+
+void Vehicle::_requestFinished(QNetworkReply* reply)
+{
+    if (!reply) {
+        return;
+    }
+
+    QString boardStatus = QStringLiteral("Lỗi Mạng");
+    QString message;
+
+    if (reply->error() == QNetworkReply::NoError) {
+        const QByteArray data = reply->readAll();
+
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+
+        if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+            const QJsonObject obj = doc.object();
+
+            if (obj.contains("board_status")) {
+                const QJsonValue v = obj.value("board_status");
+                boardStatus = v.isBool() ? (v.toBool() ? QStringLiteral("True") : QStringLiteral("False"))
+                                         : QStringLiteral("Kiểu DL sai");
+            } else {
+                boardStatus = QStringLiteral("Không có key");
+            }
+
+            if (obj.contains("message")) {
+                message = obj.value("message").toString();
+            }
+        } else {
+            boardStatus = QStringLiteral("Lỗi JSON");
+        }
+    } else {
+        qCDebug(VehicleLog) << "UAV info request error:" << reply->errorString();
+    }
+
+    emit uavInfoReceived(boardStatus, message);
+    reply->deleteLater();
 }
 
 void Vehicle::_offlineFirmwareTypeSettingChanged(QVariant varFirmwareType)

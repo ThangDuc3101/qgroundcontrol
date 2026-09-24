@@ -19,12 +19,22 @@ Item {
     property color  _mainStatusBGColor: qgcPal.brandingPurple
     property real   _leftRightMargin:   ScreenTools.defaultFontPixelWidth * 0.75
     property var    _guidedController:  globals.guidedControllerFlyView
+    property string _currentBoardStatus: "Đang kết nối..." // from the external UAV info server, see Vehicle::uavInfoReceived
 
     function dropMainStatusIndicatorTool() {
         mainStatusIndicator.dropMainStatusIndicator();
     }
 
     QGCPalette { id: qgcPal }
+
+    Connections {
+        target:                 _activeVehicle
+        enabled:                _activeVehicle !== null
+        ignoreUnknownSignals:   true
+        function onUavInfoReceived(boardStatus, message) {
+            if (_activeVehicle) control._currentBoardStatus = boardStatus
+        }
+    }
 
     QGCFlickable {
         anchors.fill:       parent
@@ -113,6 +123,36 @@ Item {
                 Rectangle {
                     anchors.fill:   parent
                     color:          qgcPal.windowTransparent
+                }
+
+                // Board (fuze) status from the external UAV info server
+                Rectangle {
+                    anchors.centerIn:   parent
+                    width:              ScreenTools.defaultFontPixelWidth * 18
+                    height:             parent.height * 0.8
+                    color:              _currentBoardStatus === "True" ? Qt.rgba(1, 0, 0, 0.25) : Qt.rgba(0, 0.5, 0, 0.2)
+                    border.color:       _currentBoardStatus === "True" ? "#ff0000" : "#00ff00"
+                    border.width:       3
+                    radius:             6
+                    visible:            _activeVehicle && !guidedActionConfirm.visible
+
+                    SequentialAnimation on border.color {
+                        running:    _currentBoardStatus === "True"
+                        loops:      Animation.Infinite
+                        ColorAnimation { from: "#ff0000"; to: "#ff6666"; duration: 400 }
+                        ColorAnimation { from: "#ff6666"; to: "#ff0000"; duration: 400 }
+                    }
+
+                    QGCLabel {
+                        anchors.centerIn:   parent
+                        text:               _currentBoardStatus === "True"  ? "NGÒI MỞ"
+                                          : _currentBoardStatus === "False" ? "AN TOÀN"
+                                          : "CHƯA MỞ NGÒI"
+                        color:              parent.border.color
+                        font.bold:          true
+                        font.family:        "Monospace"
+                        font.pointSize:     ScreenTools.smallFontPointSize * 1.1
+                    }
                 }
 
                 GuidedActionConfirm {

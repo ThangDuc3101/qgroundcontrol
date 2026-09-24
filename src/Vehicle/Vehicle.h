@@ -10,6 +10,7 @@
 #include <QtCore/QSharedPointer>
 #include <QtCore/QTime>
 #include <QtCore/QTimer>
+#include <QtCore/QUrl>
 #include <QtCore/QVariantList>
 #include <QtPositioning/QGeoCoordinate>
 #include <QtQmlIntegration/QtQmlIntegration>
@@ -21,6 +22,9 @@
 #include "VehicleFactGroup.h"
 #include "VehicleSigningController.h"  // Q_PROPERTY needs the full QObject type for moc/QML metatype registration
 #include "VehicleTypes.h"
+
+class QNetworkAccessManager;
+class QNetworkReply;
 
 class Actuators;
 class HealthAndArmingCheckReport;
@@ -723,6 +727,9 @@ public:
     /// Vehicle is about to be deleted
     void prepareDelete();
 
+    /// Start polling the external UAV info HTTP server (board status + operator message) at freq Hz
+    void GetUAVInfo(const QString& url, int freq);
+
     /// Delete gimbal controller, handy for RequestMessageTest.cc, otherwise gimbal controller message requests will mess with this test
     void deleteGimbalController();
 
@@ -832,6 +839,9 @@ signals:
     void logEntry                       (uint32_t time_utc, uint32_t size, uint16_t id, uint16_t num_logs, uint16_t last_log_num);
     void logData                        (uint32_t ofs, uint16_t id, uint8_t count, const uint8_t* data);
 
+    /// External UAV info server poll result. boardStatus is "True"/"False" or an error string.
+    void uavInfoReceived                (QString boardStatus, QString message);
+
 private slots:
     void _mavlinkMessageReceived            (LinkInterface* link, mavlink_message_t message);
     void _sendMessageMultipleNext           ();
@@ -857,6 +867,8 @@ private slots:
     void _orbitTelemetryTimeout             ();
     void _updateFlightTime                  ();
     void _gotProgressUpdate                 (float progressValue);
+    void _sendRequest                       ();
+    void _requestFinished                   (QNetworkReply* reply);
 
 private:
     void _activeVehicleChanged          (Vehicle* newActiveVehicle);
@@ -996,6 +1008,10 @@ private:
 
     QTimer  _sendMultipleTimer;
     int     _nextSendMessageMultipleIndex = 0;
+
+    QNetworkAccessManager*  _networkManager = nullptr;
+    QTimer*                 _requestTimer   = nullptr;
+    QUrl                    _requestUrl;
 
     QElapsedTimer                   _flightTimer;
     QTimer                          _flightTimeUpdater;
