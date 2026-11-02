@@ -21,6 +21,7 @@
 #include "SpeedSection.h"
 #include "QGCNetworkHelper.h"
 
+#include <QtCore/QDateTime>
 #include <QtCore/QDir>
 #include <QtCore/QDirIterator>
 #include <QtCore/QFileInfo>
@@ -28,6 +29,7 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QSaveFile>
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 
@@ -798,10 +800,51 @@ void PlanMasterController::sendCurrentPlanToServer()
         return;
     }
 
-    _postPlanToServer(QJsonDocument(rootObject).toJson(QJsonDocument::Indented));
+    const QByteArray planBytes = QJsonDocument(rootObject).toJson(QJsonDocument::Indented);
+    _postPlanToServer(planBytes, _saveSentPlanCopy(planBytes));
 }
 
-void PlanMasterController::_postPlanToServer(const QByteArray& planBytes)
+QString PlanMasterController::_saveSentPlanCopy(const QByteArray& planBytes) const
+{
+    const QString missionSavePath = SettingsManager::instance()->appSettings()->missionSavePath();
+    if (missionSavePath.isEmpty()) {
+        return QString();
+    }
+
+    const QDir sentPlansDir(QDir(missionSavePath).filePath(QStringLiteral("SentPlans")));
+    if (!sentPlansDir.mkpath(QStringLiteral("."))) {
+        qCWarning(PlanMasterControllerLog) << "Unable to create" << sentPlansDir.path();
+        return QString();
+    }
+
+    // History copy, one file per send
+    const QString timestamp   = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
+    const QString historyPath = sentPlansDir.filePath(QStringLiteral("sent_plan_%1.json").arg(timestamp));
+    QFile historyFile(historyPath);
+    if (historyFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        historyFile.write(planBytes);
+        historyFile.close();
+    } else {
+        qCWarning(PlanMasterControllerLog) << "Unable to save sent plan copy" << historyPath << historyFile.errorString();
+    }
+
+    // Fixed-name copy of the most recent send, replaced atomically so readers never see a partial file
+    const QString latestPath = sentPlansDir.filePath(QStringLiteral("latest_sent_plan.json"));
+    QSaveFile latestFile(latestPath);
+    if (!latestFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qCWarning(PlanMasterControllerLog) << "Unable to save" << latestPath << latestFile.errorString();
+        return QString();
+    }
+    latestFile.write(planBytes);
+    if (!latestFile.commit()) {
+        qCWarning(PlanMasterControllerLog) << "Unable to save" << latestPath << latestFile.errorString();
+        return QString();
+    }
+
+    return latestPath;
+}
+
+void PlanMasterController::_postPlanToServer(const QByteArray& planBytes, const QString& savedCopyPath)
 {
     QNetworkRequest request = QGCNetworkHelper::createRequest(QUrl(QString(kPlanUploadUrl)));
     QGCNetworkHelper::setJsonHeaders(request);
@@ -809,15 +852,24 @@ void PlanMasterController::_postPlanToServer(const QByteArray& planBytes)
     QNetworkAccessManager* networkManager = QGCNetworkHelper::createNetworkManager(this);
     QNetworkReply*          reply         = networkManager->post(request, planBytes);
 
-    connect(reply, &QNetworkReply::finished, this, [reply, networkManager]() {
+    const QString savedCopyNote = savedCopyPath.isEmpty() ? QString() : tr("Sent JSON saved to: %1").arg(savedCopyPath);
+
+    connect(reply, &QNetworkReply::finished, this, [reply, networkManager, savedCopyNote]() {
+        QStringList messageLines;
         if (!QGCNetworkHelper::isSuccess(reply)) {
-            QGC::showAppMessage(tr("Send Plan failed: %1").arg(QGCNetworkHelper::errorMessage(reply)));
+            messageLines.append(tr("Send Plan failed: %1").arg(QGCNetworkHelper::errorMessage(reply)));
         } else {
             const QJsonDocument responseDoc = QGCNetworkHelper::parseJsonReply(reply);
             const QString       message     = responseDoc.object().value(QStringLiteral("message")).toString();
             if (!message.isEmpty()) {
-                QGC::showAppMessage(message, tr("Send Plan"));
+                messageLines.append(message);
             }
+        }
+        if (!savedCopyNote.isEmpty()) {
+            messageLines.append(savedCopyNote);
+        }
+        if (!messageLines.isEmpty()) {
+            QGC::showAppMessage(messageLines.join(QLatin1Char('\n')), tr("Send Plan"));
         }
         reply->deleteLater();
         networkManager->deleteLater();

@@ -195,7 +195,10 @@ private:
     void _clearFileNames();
     /// @return Custom waypoint JSON for the current plan, or an empty object with errorString set
     QJsonObject _buildCustomPlanJson(QString& errorString);
-    void _postPlanToServer(const QByteArray& planBytes);
+    /// Writes planBytes to <missionSavePath>/SentPlans as both a timestamped history file and latest_sent_plan.json
+    /// @return Path of latest_sent_plan.json, or empty if it could not be saved
+    QString _saveSentPlanCopy(const QByteArray& planBytes) const;
+    void _postPlanToServer(const QByteArray& planBytes, const QString& savedCopyPath = QString());
 
 #ifdef QGC_UNITTEST_BUILD
     // Used by unit tests to set dirty flags for initial state
