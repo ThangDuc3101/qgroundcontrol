@@ -76,6 +76,8 @@ ColumnLayout {
 
     function _confirm() {
         _confirmed = true
+        globals.sentTargetOriginalCoordinate = _originalCoordinate
+        globals.sentTargetCoordinate = _targetItem.coordinate
         _planController.sendCurrentPlanToServer()
         mainWindow.closeIndicatorDrawer()
     }

@@ -611,6 +611,37 @@ FlightMap {
         }
     }
 
+    // Last target sent to the upload server. The vehicle keeps flying its own mission until the server uploads the new
+    // one, so keep showing where the target was sent to until that mission arrives.
+    MapPolyline {
+        line.width: 3
+        line.color: QGroundControl.globalPalette.colorGreen
+        z:          QGroundControl.zOrderMapItems
+        visible:    !pipMode && globals.sentTargetCoordinate !== null && globals.editTargetItem === null
+        path:       visible ? [ globals.sentTargetOriginalCoordinate, globals.sentTargetCoordinate ] : []
+    }
+
+    MapQuickItem {
+        z:              QGroundControl.zOrderMapItems
+        visible:        !pipMode && globals.sentTargetCoordinate !== null && globals.editTargetItem === null
+        coordinate:     visible ? globals.sentTargetCoordinate : QtPositioning.coordinate()
+        anchorPoint.x:  sourceItem.anchorPointX
+        anchorPoint.y:  sourceItem.anchorPointY
+
+        sourceItem: MissionItemIndexLabel {
+            index:      -1
+            label:      qsTr("Sent target")
+        }
+    }
+
+    // A mission reloaded from the vehicle already plots the real target
+    Connections {
+        target: globals.planMasterControllerFlyView.missionController
+        function onVisualItemsChanged() {
+            globals.sentTargetCoordinate = null
+        }
+    }
+
     // Orbit telemetry visuals
     QGCMapCircleVisuals {
         id:             orbitTelemetryCircle

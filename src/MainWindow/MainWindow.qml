@@ -84,6 +84,10 @@ ApplicationWindow {
         // used by FlyViewMap to draw a live preview since the map plots the vehicle's own copy of the mission
         property var                editTargetItem:                 null
         property var                editTargetOriginalCoordinate
+
+        // Last target sent to the upload server (null when none), shown by FlyViewMap until the vehicle's mission reloads
+        property var                sentTargetCoordinate:           null
+        property var                sentTargetOriginalCoordinate
     }
 
     /// Default color palette used throughout the UI
