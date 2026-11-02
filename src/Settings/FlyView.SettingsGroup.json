@@ -136,6 +136,30 @@
             "default": true,
             "label": "Enable automatic mission start/resume popups",
             "keywords": "mission popup"
+        },
+        {
+            "name": "editTargetHorizontalStep",
+            "shortDesc": "Distance the target waypoint moves per arrow key press in the Edit Target panel. Hold Shift for 10x.",
+            "type": "double",
+            "units": "m",
+            "min": 0.1,
+            "max": 100,
+            "decimalPlaces": 1,
+            "default": 1,
+            "label": "Edit Target Horizontal Step",
+            "keywords": "edit target,step,waypoint"
+        },
+        {
+            "name": "editTargetVerticalStep",
+            "shortDesc": "Altitude change of the target waypoint per PgUp/PgDn press in the Edit Target panel. Hold Shift for 10x.",
+            "type": "double",
+            "units": "vertical m",
+            "min": 0.1,
+            "max": 50,
+            "decimalPlaces": 1,
+            "default": 1,
+            "label": "Edit Target Altitude Step",
+            "keywords": "edit target,step,altitude"
         }
     ]
 }

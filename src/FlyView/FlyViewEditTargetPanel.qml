@@ -3,6 +3,7 @@ import QtQuick.Layouts
 
 import QGroundControl
 import QGroundControl.Controls
+import QGroundControl.FactControls
 
 // In-flight adjustment of the mission's final waypoint (the "is_target" point of the custom plan JSON)
 // using the keyboard. Confirming (button or holding Space) posts the adjusted plan to the upload server;
@@ -12,12 +13,16 @@ ColumnLayout {
     spacing:    ScreenTools.defaultFontPixelHeight / 2
     focus:      true
 
-    readonly property real _smallStepMeters:    1
-    readonly property real _largeStepMeters:    10
+    readonly property real _largeStepMultiplier:    10 // applied while Shift is held
+    readonly property var  _horizontalStepPresets:  [ 1, 2, 5, 10, 20, 50 ]
+    readonly property var  _verticalStepPresets:    [ 0.5, 1, 2, 5, 10 ]
     readonly property int  _mavCmdNavWaypoint:  16 // MAV_CMD_NAV_WAYPOINT; the MAV_CMD enum is not exposed to QML
     readonly property int  _holdToConfirmMs:    1000
 
     property var    _planController:        globals.planMasterControllerFlyView
+    property var    _flyViewSettings:       QGroundControl.settingsManager.flyViewSettings
+    property Fact   _horizontalStepFact:    _flyViewSettings.editTargetHorizontalStep
+    property Fact   _verticalStepFact:      _flyViewSettings.editTargetVerticalStep
     property var    _missionController:     _planController.missionController
     // Captured once in Component.onCompleted (not bound) so Cancel can restore the starting position
     property var    _targetItem:            null
@@ -53,6 +58,22 @@ ColumnLayout {
         _upMeters += upMeters
     }
 
+    // Steps to the next preset above/below the current value, so custom values typed in the field still cycle sensibly
+    function _cycleStep(stepFact, presets, up) {
+        var current = stepFact.rawValue
+        var next = up ? presets[presets.length - 1] : presets[0]
+        if (up) {
+            for (var i = 0; i < presets.length; i++) {
+                if (presets[i] > current + 1e-6) { next = presets[i]; break }
+            }
+        } else {
+            for (var j = presets.length - 1; j >= 0; j--) {
+                if (presets[j] < current - 1e-6) { next = presets[j]; break }
+            }
+        }
+        stepFact.rawValue = next
+    }
+
     function _confirm() {
         _confirmed = true
         _planController.sendCurrentPlanToServer()
@@ -68,14 +89,30 @@ ColumnLayout {
         if (!_targetItem) {
             return
         }
-        var step = (event.modifiers & Qt.ShiftModifier) ? _largeStepMeters : _smallStepMeters
+        var shift = (event.modifiers & Qt.ShiftModifier) !== 0
+        var multiplier = shift ? _largeStepMultiplier : 1
+        var hStep = _horizontalStepFact.rawValue * multiplier
+        var vStep = _verticalStepFact.rawValue * multiplier
         switch (event.key) {
-        case Qt.Key_Up:         _moveHorizontal(step, 0);   break
-        case Qt.Key_Down:       _moveHorizontal(-step, 0);  break
-        case Qt.Key_Right:      _moveHorizontal(0, step);   break
-        case Qt.Key_Left:       _moveHorizontal(0, -step);  break
-        case Qt.Key_PageUp:     _moveVertical(step);        break
-        case Qt.Key_PageDown:   _moveVertical(-step);       break
+        case Qt.Key_Up:             _moveHorizontal(hStep, 0);  break
+        case Qt.Key_Down:           _moveHorizontal(-hStep, 0); break
+        case Qt.Key_Right:          _moveHorizontal(0, hStep);  break
+        case Qt.Key_Left:           _moveHorizontal(0, -hStep); break
+        case Qt.Key_PageUp:         _moveVertical(vStep);       break
+        case Qt.Key_PageDown:       _moveVertical(-vStep);      break
+        // [ ] cycle the horizontal step; Shift+[ ] (reported as { } on most layouts) cycle the altitude step
+        case Qt.Key_BracketLeft:
+        case Qt.Key_BracketRight:
+            if (shift) {
+                _cycleStep(_verticalStepFact, _verticalStepPresets, event.key === Qt.Key_BracketRight)
+            } else {
+                _cycleStep(_horizontalStepFact, _horizontalStepPresets, event.key === Qt.Key_BracketRight)
+            }
+            break
+        case Qt.Key_BraceLeft:
+        case Qt.Key_BraceRight:
+            _cycleStep(_verticalStepFact, _verticalStepPresets, event.key === Qt.Key_BraceRight)
+            break
         case Qt.Key_Space:
             if (!event.isAutoRepeat) {
                 _holdProgress = 0
@@ -134,14 +171,32 @@ ColumnLayout {
         QGCLabel { text: root._targetItem ? root._targetItem.altitude.valueString + " " + root._targetItem.altitude.units : "" }
 
         QGCLabel { text: qsTr("Offset (N/E/Up)") }
-        QGCLabel { text: qsTr("%1 / %2 / %3 m").arg(root._northMeters).arg(root._eastMeters).arg(root._upMeters) }
+        QGCLabel {
+            text: qsTr("%1 / %2 / %3 m").arg(root._northMeters.toFixed(1)).arg(root._eastMeters.toFixed(1)).arg(root._upMeters.toFixed(1))
+        }
+    }
+
+    LabelledFactTextField {
+        Layout.fillWidth:   true
+        visible:            root._targetItem !== null
+        label:              qsTr("Horizontal step [ ]")
+        fact:               root._horizontalStepFact
+        textField.onEditingFinished: root.forceActiveFocus() // give the arrow keys back to the panel
+    }
+
+    LabelledFactTextField {
+        Layout.fillWidth:   true
+        visible:            root._targetItem !== null
+        label:              qsTr("Altitude step { }")
+        fact:               root._verticalStepFact
+        textField.onEditingFinished: root.forceActiveFocus()
     }
 
     QGCLabel {
         visible:            root._targetItem !== null
         Layout.fillWidth:   true
-        text:               qsTr("Arrow keys: move %1 m, PgUp/PgDn: altitude. Hold Shift for %2 m. Hold Space %3 s to confirm, Esc to cancel.")
-                                .arg(root._smallStepMeters).arg(root._largeStepMeters).arg(root._holdToConfirmMs / 1000)
+        text:               qsTr("Arrow keys: move, PgUp/PgDn: altitude, Shift: x%1. Hold Space %2 s to confirm, Esc to cancel.")
+                                .arg(root._largeStepMultiplier).arg(root._holdToConfirmMs / 1000)
         font.pointSize:     ScreenTools.smallFontPointSize
         wrapMode:           Text.WordWrap
         Layout.maximumWidth: ScreenTools.defaultFontPixelWidth * 40
