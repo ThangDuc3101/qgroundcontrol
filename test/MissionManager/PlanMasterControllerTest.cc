@@ -910,6 +910,16 @@ void PlanMasterControllerTest::_testSendSavedPlanToServerMissingFileShowsError()
     _masterController->sendSavedPlanToServer(QStringLiteral("/nonexistent/path/plan.json"));
 }
 
+void PlanMasterControllerTest::_testSendCurrentPlanToServerRejectsPlanWithoutWaypoints()
+{
+    // Fresh plan has no MAV_CMD_NAV_WAYPOINT items, so the JSON build fails before any network
+    // request is made - safe to run without a server.
+    ignoreLogMessage("API.QGCApplication.AppMessage", QtDebugMsg,
+                     QRegularExpression("Unable to send plan: plan has no waypoint items"));
+
+    _masterController->sendCurrentPlanToServer();
+}
+
 #include "UnitTest.h"
 
 UT_REGISTER_TEST(PlanMasterControllerTest, TestLabel::Integration, TestLabel::MissionManager)

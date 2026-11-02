@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QtCore/QJsonObject>
 #include <QtCore/QObject>
 #include <QtQmlIntegration/QtQmlIntegration>
 
@@ -109,6 +110,10 @@ public:
     ///     @param filename File to send
     Q_INVOKABLE void sendSavedPlanToServer(const QString& filename);
 
+    /// Builds the same custom JSON as saveMissionWaypointsAsJson() from the plan currently in memory
+    /// and posts it to the upload server, without going through a file.
+    Q_INVOKABLE void sendCurrentPlanToServer();
+
     Q_INVOKABLE bool saveWithCurrentName(); ///< Save using the (possibly renamed) currentPlanFileName
     Q_INVOKABLE bool resolvedPlanFileExists() const; ///< true if a file at the renamed path already exists on disk
     Q_INVOKABLE void removeAll(void); ///< Removes all from controller only, sync required to remove from vehicle
@@ -188,6 +193,9 @@ private:
     void _setDirtyStates(bool dirtyForSave, bool dirtyForUpload);
     QString _resolvedPlanFilePath() const;
     void _clearFileNames();
+    /// @return Custom waypoint JSON for the current plan, or an empty object with errorString set
+    QJsonObject _buildCustomPlanJson(QString& errorString);
+    void _postPlanToServer(const QByteArray& planBytes);
 
 #ifdef QGC_UNITTEST_BUILD
     // Used by unit tests to set dirty flags for initial state

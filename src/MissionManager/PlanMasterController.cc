@@ -559,22 +559,18 @@ void PlanMasterController::saveToKml(const QString& filename)
     }
 }
 
-void PlanMasterController::saveMissionWaypointsAsJson(const QString& filename)
+QJsonObject PlanMasterController::_buildCustomPlanJson(QString& errorString)
 {
-    if (filename.isEmpty()) {
-        return;
-    }
-
     QmlObjectListModel* visualItems = _missionController.visualItems();
     if (!visualItems || visualItems->count() == 0) {
-        QGC::showAppMessage(tr("Unable to save waypoints: plan is empty."));
-        return;
+        errorString = tr("plan is empty.");
+        return QJsonObject();
     }
 
     Vehicle* vehicle = managerVehicle();
     if (!vehicle) {
-        QGC::showAppMessage(tr("Unable to save waypoints: no vehicle available."));
-        return;
+        errorString = tr("no vehicle available.");
+        return QJsonObject();
     }
     const double defaultFlightSpeed = vehicle->multiRotor() ? vehicle->defaultHoverSpeed() : vehicle->defaultCruiseSpeed();
 
@@ -628,8 +624,8 @@ void PlanMasterController::saveMissionWaypointsAsJson(const QString& filename)
     }
 
     if (waypointArray.isEmpty()) {
-        QGC::showAppMessage(tr("Unable to save waypoints: plan has no waypoint items."));
-        return;
+        errorString = tr("plan has no waypoint items.");
+        return QJsonObject();
     }
 
     QJsonObject lastWaypoint = waypointArray.last().toObject();
@@ -647,6 +643,22 @@ void PlanMasterController::saveMissionWaypointsAsJson(const QString& filename)
     rootObject[QStringLiteral("flight_speed_units")] = QString(kFlightSpeedUnitsKmh);
     rootObject[QStringLiteral("launch_point")]       = launchPointObject;
     rootObject[QStringLiteral("waypoints")]          = waypointArray;
+
+    return rootObject;
+}
+
+void PlanMasterController::saveMissionWaypointsAsJson(const QString& filename)
+{
+    if (filename.isEmpty()) {
+        return;
+    }
+
+    QString           errorString;
+    const QJsonObject rootObject = _buildCustomPlanJson(errorString);
+    if (rootObject.isEmpty()) {
+        QGC::showAppMessage(tr("Unable to save waypoints: %1").arg(errorString));
+        return;
+    }
 
     QFile file(filename);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -774,6 +786,23 @@ void PlanMasterController::sendSavedPlanToServer(const QString& filename)
     const QByteArray planBytes = file.readAll();
     file.close();
 
+    _postPlanToServer(planBytes);
+}
+
+void PlanMasterController::sendCurrentPlanToServer()
+{
+    QString           errorString;
+    const QJsonObject rootObject = _buildCustomPlanJson(errorString);
+    if (rootObject.isEmpty()) {
+        QGC::showAppMessage(tr("Unable to send plan: %1").arg(errorString));
+        return;
+    }
+
+    _postPlanToServer(QJsonDocument(rootObject).toJson(QJsonDocument::Indented));
+}
+
+void PlanMasterController::_postPlanToServer(const QByteArray& planBytes)
+{
     QNetworkRequest request = QGCNetworkHelper::createRequest(QUrl(QString(kPlanUploadUrl)));
     QGCNetworkHelper::setJsonHeaders(request);
 

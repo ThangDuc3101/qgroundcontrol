@@ -50,6 +50,7 @@ private slots:
     void _testLoadMissionFromJsonFallsBackToFirstWaypointWhenNoLaunchPoint();
     void _testLoadMissionFromJsonRejectsMissingWaypointsArray();
     void _testSendSavedPlanToServerMissingFileShowsError();
+    void _testSendCurrentPlanToServerRejectsPlanWithoutWaypoints();
 
 private:
     enum DirtyScenario {
