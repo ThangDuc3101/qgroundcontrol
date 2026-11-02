@@ -5,8 +5,8 @@ import QGroundControl
 import QGroundControl.Controls
 
 // In-flight adjustment of the mission's final waypoint (the "is_target" point of the custom plan JSON)
-// using the keyboard. Confirming posts the adjusted plan to the upload server; closing the panel any
-// other way restores the original position.
+// using the keyboard. Confirming (button or holding Space) posts the adjusted plan to the upload server;
+// closing the panel any other way restores the original position.
 ColumnLayout {
     id:         root
     spacing:    ScreenTools.defaultFontPixelHeight / 2
@@ -14,6 +14,8 @@ ColumnLayout {
 
     readonly property real _smallStepMeters:    1
     readonly property real _largeStepMeters:    10
+    readonly property int  _mavCmdNavWaypoint:  16 // MAV_CMD_NAV_WAYPOINT; the MAV_CMD enum is not exposed to QML
+    readonly property int  _holdToConfirmMs:    1000
 
     property var    _planController:        globals.planMasterControllerFlyView
     property var    _missionController:     _planController.missionController
@@ -25,12 +27,13 @@ ColumnLayout {
     property real   _eastMeters:            0
     property real   _upMeters:              0
     property bool   _confirmed:             false
+    property real   _holdProgress:          0 // 0..1 while Space is held down
 
     function _findTargetItem() {
         var visualItems = _missionController.visualItems
         for (var i = visualItems.count - 1; i >= 0; i--) {
             var item = visualItems.get(i)
-            if (item.isSimpleItem && item.command === MAVLinkEnums.MAV_CMD_NAV_WAYPOINT) {
+            if (item.isSimpleItem && item.command === _mavCmdNavWaypoint) {
                 return item
             }
         }
@@ -50,6 +53,12 @@ ColumnLayout {
         _upMeters += upMeters
     }
 
+    function _confirm() {
+        _confirmed = true
+        _planController.sendCurrentPlanToServer()
+        mainWindow.closeIndicatorDrawer()
+    }
+
     function _restoreOriginal() {
         _targetItem.coordinate = _originalCoordinate
         _targetItem.altitude.rawValue = _originalAltitude
@@ -67,9 +76,36 @@ ColumnLayout {
         case Qt.Key_Left:       _moveHorizontal(0, -step);  break
         case Qt.Key_PageUp:     _moveVertical(step);        break
         case Qt.Key_PageDown:   _moveVertical(-step);       break
+        case Qt.Key_Space:
+            if (!event.isAutoRepeat) {
+                _holdProgress = 0
+                holdTimer.start()
+            }
+            break
         default:                return
         }
         event.accepted = true
+    }
+
+    Keys.onReleased: (event) => {
+        if (event.key === Qt.Key_Space && !event.isAutoRepeat) {
+            holdTimer.stop()
+            _holdProgress = 0
+            event.accepted = true
+        }
+    }
+
+    Timer {
+        id:         holdTimer
+        interval:   20
+        repeat:     true
+        onTriggered: {
+            root._holdProgress = Math.min(1, root._holdProgress + interval / root._holdToConfirmMs)
+            if (root._holdProgress >= 1) {
+                stop()
+                root._confirm()
+            }
+        }
     }
 
     QGCLabel {
@@ -104,11 +140,27 @@ ColumnLayout {
     QGCLabel {
         visible:            root._targetItem !== null
         Layout.fillWidth:   true
-        text:               qsTr("Arrow keys: move %1 m, PgUp/PgDn: altitude. Hold Shift for %2 m.")
-                                .arg(root._smallStepMeters).arg(root._largeStepMeters)
+        text:               qsTr("Arrow keys: move %1 m, PgUp/PgDn: altitude. Hold Shift for %2 m. Hold Space %3 s to confirm, Esc to cancel.")
+                                .arg(root._smallStepMeters).arg(root._largeStepMeters).arg(root._holdToConfirmMs / 1000)
         font.pointSize:     ScreenTools.smallFontPointSize
         wrapMode:           Text.WordWrap
         Layout.maximumWidth: ScreenTools.defaultFontPixelWidth * 40
+    }
+
+    // Hold-to-confirm progress
+    Rectangle {
+        Layout.fillWidth:       true
+        Layout.preferredHeight: ScreenTools.defaultFontPixelHeight / 3
+        visible:                root._targetItem !== null
+        color:                  QGroundControl.globalPalette.windowShade
+        radius:                 height / 2
+
+        Rectangle {
+            width:  parent.width * root._holdProgress
+            height: parent.height
+            color:  QGroundControl.globalPalette.colorGreen
+            radius: parent.radius
+        }
     }
 
     RowLayout {
@@ -118,18 +170,14 @@ ColumnLayout {
         QGCButton {
             Layout.fillWidth:   true
             text:               qsTr("Cancel")
-            onClicked:          dropPanel.hide()
+            onClicked:          mainWindow.closeIndicatorDrawer()
         }
 
         QGCButton {
             Layout.fillWidth:   true
             text:               qsTr("Confirm && Send")
             enabled:            root._targetItem !== null
-            onClicked: {
-                root._confirmed = true
-                root._planController.sendCurrentPlanToServer()
-                dropPanel.hide()
-            }
+            onClicked:          root._confirm()
         }
     }
 
@@ -138,8 +186,14 @@ ColumnLayout {
         target: root._missionController
         function onVisualItemsChanged() {
             root._targetItem = null
-            dropPanel.hide()
+            mainWindow.closeIndicatorDrawer()
         }
+    }
+
+    // Publish the edit state so FlyViewMap can draw the live preview
+    on_TargetItemChanged: {
+        globals.editTargetOriginalCoordinate = _originalCoordinate
+        globals.editTargetItem = _targetItem
     }
 
     Component.onCompleted: {
@@ -153,6 +207,7 @@ ColumnLayout {
     }
 
     Component.onDestruction: {
+        globals.editTargetItem = null
         if (!_confirmed && _targetItem) {
             _restoreOriginal()
         }

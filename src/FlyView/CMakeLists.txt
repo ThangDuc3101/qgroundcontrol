@@ -27,8 +27,7 @@ qt_add_qml_module(FlyViewModule
         FlyViewCustomLayer.qml
         FlyViewInsetViewer.qml
         FlyViewInstrumentPanel.qml
-        FlyViewEditTargetButton.qml
-        FlyViewEditTargetDropPanel.qml
+        FlyViewEditTargetPanel.qml
         FlyViewGripperButton.qml
         FlyViewGripperDropPanel.qml
         FlyViewMap.qml

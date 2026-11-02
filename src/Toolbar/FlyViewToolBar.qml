@@ -112,6 +112,22 @@ Item {
                         Layout.fillHeight:  true
                         visible:            _activeVehicle
                     }
+
+                    QGCButton {
+                        id:         editTargetButton
+                        objectName: "toolbar_editTargetButton"
+                        text:       qsTr("Edit Target")
+                        visible:    _activeVehicle !== null && globals.planMasterControllerFlyView.containsItems
+                        onClicked:  mainWindow.showIndicatorDrawer(editTargetPanelComponent, editTargetButton)
+
+                        Component {
+                            id: editTargetPanelComponent
+
+                            ToolIndicatorPage {
+                                contentComponent: Component { FlyViewEditTargetPanel { } }
+                            }
+                        }
+                    }
                 }
             }
             Item {

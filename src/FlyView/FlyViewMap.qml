@@ -587,6 +587,30 @@ FlightMap {
         }
     }
 
+    // Live preview of the target waypoint being edited from the toolbar (FlyViewEditTargetPanel). The mission
+    // drawn by PlanMapItems is the vehicle's own copy, so it keeps showing the original position.
+    MapPolyline {
+        line.width: 3
+        line.color: QGroundControl.globalPalette.colorOrange
+        z:          QGroundControl.zOrderMapItems
+        visible:    !pipMode && globals.editTargetItem !== null
+        path:       visible ? [ globals.editTargetOriginalCoordinate, globals.editTargetItem.coordinate ] : []
+    }
+
+    MapQuickItem {
+        z:              QGroundControl.zOrderMapItems
+        visible:        !pipMode && globals.editTargetItem !== null
+        coordinate:     visible ? globals.editTargetItem.coordinate : QtPositioning.coordinate()
+        anchorPoint.x:  sourceItem.anchorPointX
+        anchorPoint.y:  sourceItem.anchorPointY
+
+        sourceItem: MissionItemIndexLabel {
+            checked:    true
+            index:      -1
+            label:      qsTr("New target")
+        }
+    }
+
     // Orbit telemetry visuals
     QGCMapCircleVisuals {
         id:             orbitTelemetryCircle

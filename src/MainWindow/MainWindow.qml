@@ -79,6 +79,11 @@ ApplicationWindow {
 
         // Property to manage RemoteID quick access to settings page
         property bool               commingFromRIDIndicator:        false
+
+        // Target waypoint being edited from the FlyView toolbar (null when not editing) and its starting position,
+        // used by FlyViewMap to draw a live preview since the map plots the vehicle's own copy of the mission
+        property var                editTargetItem:                 null
+        property var                editTargetOriginalCoordinate
     }
 
     /// Default color palette used throughout the UI
