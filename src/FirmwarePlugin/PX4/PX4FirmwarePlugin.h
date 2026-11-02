@@ -64,6 +64,7 @@ public:
     QString             getHobbsMeter                   (Vehicle* vehicle) const override;
     bool                hasGripper                      (const Vehicle* vehicle) const override;
     QVariant            expandedToolbarIndicatorSource  (const Vehicle* vehicle, const QString& indicatorName) const override;
+    const QVariantList& toolIndicators                  (const Vehicle* vehicle) override;
 
     void                updateAvailableFlightModes      (FlightModeList &modeList) override;
 

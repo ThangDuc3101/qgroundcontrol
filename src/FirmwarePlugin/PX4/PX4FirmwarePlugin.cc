@@ -830,3 +830,22 @@ QVariant PX4FirmwarePlugin::expandedToolbarIndicatorSource(const Vehicle* /*vehi
 
     return QVariant();
 }
+
+const QVariantList& PX4FirmwarePlugin::toolIndicators(const Vehicle* vehicle)
+{
+    if (_toolIndicatorList.isEmpty()) {
+        QVariantList indicators = FirmwarePlugin::toolIndicators(vehicle);
+
+        // Place the failsafe indicator next to the RC RSSI indicator
+        const QUrl rcRssiUrl = QUrl::fromUserInput("qrc:/qml/QGroundControl/Toolbar/RCRSSIIndicator.qml");
+        const QUrl failsafeUrl =
+            QUrl::fromUserInput("qrc:/qml/QGroundControl/FirmwarePlugin/PX4/PX4FailsafeIndicator.qml");
+        const qsizetype rcRssiIndex = indicators.indexOf(QVariant::fromValue(rcRssiUrl));
+        const qsizetype insertIndex = (rcRssiIndex >= 0) ? rcRssiIndex + 1 : indicators.size();
+        indicators.insert(insertIndex, QVariant::fromValue(failsafeUrl));
+
+        _toolIndicatorList = indicators;
+    }
+
+    return _toolIndicatorList;
+}
