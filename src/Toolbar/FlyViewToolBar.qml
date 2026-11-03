@@ -147,6 +147,31 @@ Item {
                         }
                     }
 
+                    // Click-to-track: while on, each click on the full-size video posts the pixel to the companion computer
+                    QGCButton {
+                        id:         trackingButton
+                        objectName: "toolbar_trackingButton"
+                        text:       globals.trackingController.active ? qsTr("Tracking: BẬT") : qsTr("Tracking")
+                        visible:    _activeVehicle !== null
+                        checked:    globals.trackingController.active
+                        onClicked:  globals.trackingController.setActive(!globals.trackingController.active)
+                    }
+
+                    QGCButton {
+                        objectName: "toolbar_trackingCancelButton"
+                        text:       qsTr("Hủy điểm (Esc)")
+                        visible:    trackingButton.visible && globals.trackingController.active && globals.trackingController.point !== null
+                        onClicked:  globals.trackingController.cancelPoint()
+                    }
+
+                    QGCLabel {
+                        visible:        trackingButton.visible && globals.trackingController.active
+                        text:           globals.trackingController.statusText !== "" ? globals.trackingController.statusText
+                                                                                 : qsTr("Click vào camera để chọn mục tiêu, chuột phải hoặc Esc để hủy")
+                        color:          globals.trackingController.statusIsError ? qgcPal.colorRed : qgcPal.text
+                        font.pointSize: ScreenTools.smallFontPointSize
+                    }
+
                     // Emergency disarm: hold to confirm, then force-disarm immediately (param2 = 21196),
                     // bypassing every firmware check (in air, landing, etc.). No further confirmation dialog.
                     QGCDelayButton {

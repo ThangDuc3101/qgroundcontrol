@@ -21,6 +21,7 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QScopeGuard>
 #include <QtCore/QTemporaryDir>
 #include <QtTest/QSignalSpy>
 
@@ -918,6 +919,128 @@ void PlanMasterControllerTest::_testSendCurrentPlanToServerRejectsPlanWithoutWay
                      QRegularExpression("Unable to send plan: plan has no waypoint items"));
 
     _masterController->sendCurrentPlanToServer();
+}
+
+void PlanMasterControllerTest::_testPlanWithTrackingSetsTargetWaypoint()
+{
+    const QByteArray planBytes = QByteArrayLiteral(R"({
+        "fileType": "FinalPlanWithTarget",
+        "waypoints": [
+            { "latitude": 1, "longitude": 2, "altitude": 50, "is_target": false },
+            { "latitude": 3, "longitude": 4, "altitude": 55, "is_target": true }
+        ]
+    })");
+    QJsonObject tracking;
+    tracking[QStringLiteral("status")] = QStringLiteral("point");
+    tracking[QStringLiteral("seq")]    = 3;
+    tracking[QStringLiteral("x_px")]   = 967;
+    tracking[QStringLiteral("y_px")]   = QJsonValue::Null;
+
+    QString          errorString;
+    const QByteArray result = PlanMasterController::_planWithTracking(planBytes, tracking, errorString);
+    QVERIFY2(!result.isEmpty(), qPrintable(errorString));
+
+    const QJsonObject root      = QJsonDocument::fromJson(result).object();
+    const QJsonArray  waypoints = root.value(QStringLiteral("waypoints")).toArray();
+    QCOMPARE(root.value(QStringLiteral("fileType")).toString(), QStringLiteral("FinalPlanWithTarget"));
+    QCOMPARE(waypoints.size(), 2);
+    QVERIFY(!waypoints.at(0).toObject().contains(QStringLiteral("tracking")));
+    const QJsonObject target = waypoints.at(1).toObject();
+    QCOMPARE(target.value(QStringLiteral("latitude")).toDouble(), 3.0);
+    QCOMPARE(target.value(QStringLiteral("tracking")).toObject(), tracking);
+    QVERIFY(target.value(QStringLiteral("tracking")).toObject().value(QStringLiteral("y_px")).isNull());
+
+    // A second update replaces the previous tracking object rather than nesting or appending
+    QJsonObject cancelled;
+    cancelled[QStringLiteral("status")] = QStringLiteral("cancelled");
+    cancelled[QStringLiteral("seq")]    = 4;
+    const QByteArray again = PlanMasterController::_planWithTracking(result, cancelled, errorString);
+    const QJsonObject againTarget = QJsonDocument::fromJson(again).object().value(QStringLiteral("waypoints")).toArray().at(1).toObject();
+    QCOMPARE(againTarget.value(QStringLiteral("tracking")).toObject(), cancelled);
+}
+
+void PlanMasterControllerTest::_testPlanWithTrackingRejectsInvalidPlan()
+{
+    QString errorString;
+    QVERIFY(PlanMasterController::_planWithTracking(QByteArrayLiteral("not json"), QJsonObject(), errorString).isEmpty());
+    QVERIFY(!errorString.isEmpty());
+
+    errorString.clear();
+    QVERIFY(PlanMasterController::_planWithTracking(QByteArrayLiteral(R"({"waypoints": []})"), QJsonObject(), errorString).isEmpty());
+    QVERIFY(!errorString.isEmpty());
+
+    // Invalid tracking JSON is rejected before any file is read or request made - safe without a server
+    QVERIFY(!_masterController->sendTrackingToServer(QStringLiteral("[1, 2]")).isEmpty());
+}
+
+void PlanMasterControllerTest::_testTrackingBuildsOnPlanSentFromFile()
+{
+    // Each send also posts to the fixed upload URL; the reply is not awaited (deleting the controller in
+    // cleanup() aborts it) and only the saved copies are checked. Ignore its result message if it lands early.
+    ignoreLogMessage("API.QGCApplication.AppMessage", QtDebugMsg, QRegularExpression("."));
+
+    const QString missionSavePath = SettingsManager::instance()->appSettings()->missionSavePath();
+    QVERIFY(!missionSavePath.isEmpty());
+    const QDir sentDir(QDir(missionSavePath).filePath(QStringLiteral("SentPlans")));
+    QVERIFY(sentDir.mkpath(QStringLiteral(".")));
+    const QString latestPath = sentDir.filePath(QStringLiteral("latest_sent_plan.json"));
+
+    auto readFile = [](const QString& path) {
+        QFile file(path);
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+    };
+    auto writeFile = [](const QString& path, const QByteArray& bytes) {
+        QFile file(path);
+        return file.open(QIODevice::WriteOnly) && (file.write(bytes) == bytes.size());
+    };
+
+    // Leave SentPlans exactly as found
+    const QStringList filesBefore  = sentDir.entryList(QDir::Files);
+    const bool        hadLatest    = QFile::exists(latestPath);
+    const QByteArray  latestBefore = readFile(latestPath);
+    const auto restore = qScopeGuard([&]() {
+        for (const QString& name : sentDir.entryList(QDir::Files)) {
+            if (!filesBefore.contains(name)) {
+                QFile::remove(sentDir.filePath(name));
+            }
+        }
+        if (hadLatest) {
+            (void) writeFile(latestPath, latestBefore);
+        }
+    });
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString    planAPath  = tempDir.filePath(QStringLiteral("planA.json"));
+    const QString    planBPath  = tempDir.filePath(QStringLiteral("planB.json"));
+    const QByteArray planABytes = QByteArrayLiteral(R"({"fileType":"FinalPlanWithTarget","waypoints":[{"latitude":1,"longitude":1,"is_target":true}]})");
+    const QByteArray planBBytes = QByteArrayLiteral(R"({"fileType":"FinalPlanWithTarget","waypoints":[{"latitude":2,"longitude":2,"is_target":false},{"latitude":3,"longitude":3,"is_target":true}]})");
+    QVERIFY(writeFile(planAPath, planABytes));
+    QVERIFY(writeFile(planBPath, planBBytes));
+
+    // Plan A is sent, then plan B from a saved file: the latest copy must follow what was sent last
+    _masterController->sendSavedPlanToServer(planAPath);
+    QCOMPARE(readFile(latestPath), planABytes);
+    _masterController->sendSavedPlanToServer(planBPath);
+    QCOMPARE(readFile(latestPath), planBBytes);
+
+    // A tracking click then lands on plan B's target, not plan A's
+    const QString error = _masterController->sendTrackingToServer(
+        QStringLiteral(R"({"status":"point","seq":7,"timestamp_utc":"2026-11-03T03:00:00.000Z","x_px":5,"y_px":6,"frame_width":1280,"frame_height":720})"));
+    QCOMPARE(error, QString());
+
+    const QJsonArray waypoints = QJsonDocument::fromJson(readFile(latestPath)).object().value(QStringLiteral("waypoints")).toArray();
+    QCOMPARE(waypoints.size(), 2);
+    QVERIFY(!waypoints.at(0).toObject().contains(QStringLiteral("tracking")));
+    const QJsonObject target   = waypoints.at(1).toObject();
+    const QJsonObject tracking = target.value(QStringLiteral("tracking")).toObject();
+    QCOMPARE(target.value(QStringLiteral("latitude")).toDouble(), 3.0);
+    QCOMPARE(tracking.value(QStringLiteral("seq")).toInt(), 7);
+    QCOMPARE(tracking.value(QStringLiteral("x_px")).toInt(), 5);
+    QCOMPARE(tracking.value(QStringLiteral("frame_height")).toInt(), 720);
+
+    // The tracking update is also kept as its own history file
+    QCOMPARE(sentDir.entryList({QStringLiteral("sent_plan_*_track7.json")}, QDir::Files).size(), 1);
 }
 
 #include "UnitTest.h"

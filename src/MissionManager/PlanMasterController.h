@@ -106,13 +106,21 @@ public:
     ///     @param filename File to read from
     Q_INVOKABLE void loadMissionFromJson(const QString& filename);
 
-    /// Posts the raw contents of a previously saved custom JSON plan file to the upload server.
+    /// Posts the raw contents of a previously saved custom JSON plan file to the upload server and, like
+    /// sendCurrentPlanToServer(), keeps a copy in SentPlans so tracking updates build on the plan actually sent.
     ///     @param filename File to send
     Q_INVOKABLE void sendSavedPlanToServer(const QString& filename);
 
     /// Builds the same custom JSON as saveMissionWaypointsAsJson() from the plan currently in memory
     /// and posts it to the upload server, without going through a file.
     Q_INVOKABLE void sendCurrentPlanToServer();
+
+    /// FlyView tracking: puts trackingJson (a JSON object) under "tracking" on the target (last) waypoint of the
+    /// last plan sent (SentPlans/latest_sent_plan.json), saves the result like Send Plan does and posts it to the
+    /// upload server without showing a dialog. Completion is reported by trackingSendFinished().
+    ///     @param trackingJson Must contain an integer "seq", echoed back in trackingSendFinished()
+    ///     @return Empty if the post was started, otherwise why nothing was sent
+    Q_INVOKABLE QString sendTrackingToServer(const QString& trackingJson);
 
     Q_INVOKABLE bool saveWithCurrentName(); ///< Save using the (possibly renamed) currentPlanFileName
     Q_INVOKABLE bool resolvedPlanFileExists() const; ///< true if a file at the renamed path already exists on disk
@@ -171,6 +179,7 @@ signals:
     void managerVehicleChanged(Vehicle* managerVehicle);
     void promptForPlanUsageOnVehicleChange(void);
     void userSelectedManualCreationChanged();
+    void trackingSendFinished(int seq, bool success, const QString& errorString);
 
 private slots:
     void _activeVehicleChanged(Vehicle* activeVehicle);
@@ -198,6 +207,12 @@ private:
     /// Writes planBytes to <missionSavePath>/SentPlans as both a timestamped history file and latest_sent_plan.json
     /// @return Path of latest_sent_plan.json, or empty if it could not be saved
     QString _saveSentPlanCopy(const QByteArray& planBytes) const;
+    /// Writes jsonBytes to <missionSavePath>/<folder>/<historyFileName> and, replaced atomically, to <folder>/<latestFileName>
+    /// @return Path of the latest copy, or empty if it could not be saved
+    QString _saveSentJsonCopy(const QString& folder, const QString& historyFileName, const QString& latestFileName, const QByteArray& jsonBytes) const;
+    /// @return planBytes with tracking set on the target waypoint, or empty with errorString set
+    static QByteArray _planWithTracking(const QByteArray& planBytes, const QJsonObject& tracking, QString& errorString);
+    void _postTrackingToServer(const QByteArray& planBytes, int seq);
     void _postPlanToServer(const QByteArray& planBytes, const QString& savedCopyPath = QString());
 
 #ifdef QGC_UNITTEST_BUILD

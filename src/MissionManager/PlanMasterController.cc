@@ -48,6 +48,8 @@ constexpr double      kMetersPerSecondToKmPerHour = 3.6;
 // TODO: hardcoded per current deployment; move to a Settings-backed Fact if the endpoint needs to
 // become user-configurable.
 constexpr const char* kPlanUploadUrl = "http://192.168.144.30:5000/submit_plan";
+// Tracking clicks are sent one after another, so give up quickly on an unreachable server
+constexpr int         kTrackingPostTimeoutMs = 3000;
 } // namespace
 
 PlanMasterController::PlanMasterController(QObject* parent)
@@ -788,7 +790,7 @@ void PlanMasterController::sendSavedPlanToServer(const QString& filename)
     const QByteArray planBytes = file.readAll();
     file.close();
 
-    _postPlanToServer(planBytes);
+    _postPlanToServer(planBytes, _saveSentPlanCopy(planBytes));
 }
 
 void PlanMasterController::sendCurrentPlanToServer()
@@ -806,42 +808,125 @@ void PlanMasterController::sendCurrentPlanToServer()
 
 QString PlanMasterController::_saveSentPlanCopy(const QByteArray& planBytes) const
 {
+    const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
+    return _saveSentJsonCopy(QStringLiteral("SentPlans"), QStringLiteral("sent_plan_%1.json").arg(timestamp),
+                             QStringLiteral("latest_sent_plan.json"), planBytes);
+}
+
+QString PlanMasterController::_saveSentJsonCopy(const QString& folder, const QString& historyFileName, const QString& latestFileName, const QByteArray& jsonBytes) const
+{
     const QString missionSavePath = SettingsManager::instance()->appSettings()->missionSavePath();
     if (missionSavePath.isEmpty()) {
         return QString();
     }
 
-    const QDir sentPlansDir(QDir(missionSavePath).filePath(QStringLiteral("SentPlans")));
-    if (!sentPlansDir.mkpath(QStringLiteral("."))) {
-        qCWarning(PlanMasterControllerLog) << "Unable to create" << sentPlansDir.path();
+    const QDir sentDir(QDir(missionSavePath).filePath(folder));
+    if (!sentDir.mkpath(QStringLiteral("."))) {
+        qCWarning(PlanMasterControllerLog) << "Unable to create" << sentDir.path();
         return QString();
     }
 
     // History copy, one file per send
-    const QString timestamp   = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
-    const QString historyPath = sentPlansDir.filePath(QStringLiteral("sent_plan_%1.json").arg(timestamp));
+    const QString historyPath = sentDir.filePath(historyFileName);
     QFile historyFile(historyPath);
     if (historyFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        historyFile.write(planBytes);
+        historyFile.write(jsonBytes);
         historyFile.close();
     } else {
-        qCWarning(PlanMasterControllerLog) << "Unable to save sent plan copy" << historyPath << historyFile.errorString();
+        qCWarning(PlanMasterControllerLog) << "Unable to save sent JSON copy" << historyPath << historyFile.errorString();
     }
 
     // Fixed-name copy of the most recent send, replaced atomically so readers never see a partial file
-    const QString latestPath = sentPlansDir.filePath(QStringLiteral("latest_sent_plan.json"));
+    const QString latestPath = sentDir.filePath(latestFileName);
     QSaveFile latestFile(latestPath);
     if (!latestFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qCWarning(PlanMasterControllerLog) << "Unable to save" << latestPath << latestFile.errorString();
         return QString();
     }
-    latestFile.write(planBytes);
+    latestFile.write(jsonBytes);
     if (!latestFile.commit()) {
         qCWarning(PlanMasterControllerLog) << "Unable to save" << latestPath << latestFile.errorString();
         return QString();
     }
 
     return latestPath;
+}
+
+QByteArray PlanMasterController::_planWithTracking(const QByteArray& planBytes, const QJsonObject& tracking, QString& errorString)
+{
+    QJsonParseError   parseError;
+    const QJsonDocument planDoc = QJsonDocument::fromJson(planBytes, &parseError);
+    QJsonObject       rootObject = planDoc.object();
+    QJsonArray        waypoints  = rootObject.value(QStringLiteral("waypoints")).toArray();
+    if ((parseError.error != QJsonParseError::NoError) || !planDoc.isObject() || waypoints.isEmpty()) {
+        errorString = tr("Plan đã gửi không hợp lệ");
+        return QByteArray();
+    }
+
+    // The target is the last waypoint flagged is_target (see _buildCustomPlanJson); fall back to the last one
+    qsizetype targetIndex = waypoints.size() - 1;
+    for (qsizetype i = waypoints.size() - 1; i >= 0; i--) {
+        if (waypoints.at(i).toObject().value(QStringLiteral("is_target")).toBool()) {
+            targetIndex = i;
+            break;
+        }
+    }
+    QJsonObject target = waypoints.at(targetIndex).toObject();
+    target[QStringLiteral("tracking")] = tracking;
+    waypoints.replace(targetIndex, target);
+    rootObject[QStringLiteral("waypoints")] = waypoints;
+
+    return QJsonDocument(rootObject).toJson(QJsonDocument::Indented);
+}
+
+QString PlanMasterController::sendTrackingToServer(const QString& trackingJson)
+{
+    QJsonParseError     parseError;
+    const QJsonDocument trackingDoc = QJsonDocument::fromJson(trackingJson.toUtf8(), &parseError);
+    if ((parseError.error != QJsonParseError::NoError) || !trackingDoc.isObject()) {
+        return tr("Dữ liệu tracking không hợp lệ");
+    }
+    const QJsonObject tracking = trackingDoc.object();
+    const int         seq      = tracking.value(QStringLiteral("seq")).toInt();
+
+    const QString missionSavePath = SettingsManager::instance()->appSettings()->missionSavePath();
+    QFile latestFile(QDir(missionSavePath).filePath(QStringLiteral("SentPlans/latest_sent_plan.json")));
+    if (missionSavePath.isEmpty() || !latestFile.open(QIODevice::ReadOnly)) {
+        return tr("Chưa có plan đã gửi");
+    }
+    const QByteArray latestBytes = latestFile.readAll();
+    latestFile.close();
+
+    QString          errorString;
+    const QByteArray planBytes = _planWithTracking(latestBytes, tracking, errorString);
+    if (planBytes.isEmpty()) {
+        return errorString;
+    }
+
+    // Millisecond timestamp plus seq: several clicks can land within the same second
+    const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
+    (void) _saveSentJsonCopy(QStringLiteral("SentPlans"), QStringLiteral("sent_plan_%1_track%2.json").arg(timestamp).arg(seq),
+                             QStringLiteral("latest_sent_plan.json"), planBytes);
+    _postTrackingToServer(planBytes, seq);
+    return QString();
+}
+
+void PlanMasterController::_postTrackingToServer(const QByteArray& planBytes, int seq)
+{
+    QGCNetworkHelper::RequestConfig config;
+    config.timeoutMs = kTrackingPostTimeoutMs;
+    QNetworkRequest request = QGCNetworkHelper::createRequest(QUrl(QString(kPlanUploadUrl)), config);
+    QGCNetworkHelper::setJsonHeaders(request);
+
+    QNetworkAccessManager* networkManager = QGCNetworkHelper::createNetworkManager(this);
+    QNetworkReply*          reply         = networkManager->post(request, planBytes);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, networkManager, seq]() {
+        const bool success = QGCNetworkHelper::isSuccess(reply);
+        emit trackingSendFinished(seq, success, success ? QString() : QGCNetworkHelper::errorMessage(reply));
+        reply->deleteLater();
+        networkManager->deleteLater();
+    });
 }
 
 void PlanMasterController::_postPlanToServer(const QByteArray& planBytes, const QString& savedCopyPath)

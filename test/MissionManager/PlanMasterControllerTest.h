@@ -51,6 +51,9 @@ private slots:
     void _testLoadMissionFromJsonRejectsMissingWaypointsArray();
     void _testSendSavedPlanToServerMissingFileShowsError();
     void _testSendCurrentPlanToServerRejectsPlanWithoutWaypoints();
+    void _testPlanWithTrackingSetsTargetWaypoint();
+    void _testPlanWithTrackingRejectsInvalidPlan();
+    void _testTrackingBuildsOnPlanSentFromFile();
 
 private:
     enum DirtyScenario {

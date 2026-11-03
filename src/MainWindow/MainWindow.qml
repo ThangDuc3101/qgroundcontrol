@@ -88,6 +88,18 @@ ApplicationWindow {
         // Last target sent to the upload server (null when none), shown by FlyViewMap until the vehicle's mission reloads
         property var                sentTargetCoordinate:           null
         property var                sentTargetOriginalCoordinate
+
+        // Click-to-track mode shared by the FlyView toolbar and video view
+        readonly property var       trackingController:             trackingControllerInstance
+    }
+
+    FlyViewTrackingController { id: trackingControllerInstance }
+
+    // Esc withdraws the current tracking point. Open popups (dialogs, drawers) still take Esc first.
+    Shortcut {
+        sequence:   "Esc"
+        enabled:    flyView.visible && trackingControllerInstance.active && trackingControllerInstance.point !== null
+        onActivated: trackingControllerInstance.cancelPoint()
     }
 
     /// Default color palette used throughout the UI
