@@ -129,6 +129,24 @@ Item {
                         }
                     }
 
+                    QGCButton {
+                        id:         paramCheckButton
+                        objectName: "toolbar_paramCheckButton"
+                        text:       qsTr("Kiểm tra Params")
+                        visible:    _activeVehicle !== null
+                        onClicked:  paramCheckDialogFactory.open()
+
+                        QGCPopupDialogFactory {
+                            id:                 paramCheckDialogFactory
+                            dialogComponent:    paramCheckDialogComponent
+                        }
+
+                        Component {
+                            id: paramCheckDialogComponent
+                            FlyViewParamCheckDialog { }
+                        }
+                    }
+
                     // Emergency disarm: hold to confirm, then force-disarm immediately (param2 = 21196),
                     // bypassing every firmware check (in air, landing, etc.). No further confirmation dialog.
                     QGCDelayButton {

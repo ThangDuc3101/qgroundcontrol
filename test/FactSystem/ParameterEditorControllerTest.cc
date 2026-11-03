@@ -53,6 +53,13 @@ static const char* kQGCParamsUnknownParam =
     "# Vehicle-Id Component-Id Name Value Type\n"
     "1\t1\tNONEXISTENT_PARAM_XYZ\t1\t6\n";
 
+static const char* kQGCParamsHashCheck =
+    "# Onboard parameters for Vehicle 1\n"
+    "#\n"
+    "# Vehicle-Id Component-Id Name Value Type\n"
+    "1\t1\t_HASH_CHECK\t-1530949660\t6\n"
+    "1\t1\tNONEXISTENT_PARAM_XYZ\t1\t6\n";
+
 void ParameterEditorControllerTest::_buildDiffQGCFormat()
 {
     TestFixtures::TempFileFixture tempFile(QStringLiteral("test_XXXXXX.params"));
@@ -168,4 +175,22 @@ void ParameterEditorControllerTest::_buildDiffMPMissingParam()
     const QStringList missingParams = missingSpy.at(0).at(0).toStringList();
     QCOMPARE(missingParams.count(), 1);
     QCOMPARE(missingParams.at(0), QStringLiteral("NONEXISTENT_PARAM_XYZ"));
+}
+
+void ParameterEditorControllerTest::_buildDiffSkipsHashCheck()
+{
+    TestFixtures::TempFileFixture tempFile(QStringLiteral("test_XXXXXX.params"));
+    QVERIFY(tempFile.isValid());
+    QVERIFY(tempFile.write(QByteArray(kQGCParamsHashCheck)));
+    QVERIFY(tempFile.file()->flush());
+
+    ParameterEditorController controller;
+    const bool result = controller.buildDiffFromFile(tempFile.path());
+
+    QVERIFY(result);
+    // PX4's virtual _HASH_CHECK line is ignored; only the genuinely unknown param is reported
+    QCOMPARE(controller.diffList()->count(), 1);
+    const auto* diff = controller.diffList()->value<ParameterEditorDiff*>(0);
+    QVERIFY(diff);
+    QCOMPARE(diff->name, QStringLiteral("NONEXISTENT_PARAM_XYZ"));
 }

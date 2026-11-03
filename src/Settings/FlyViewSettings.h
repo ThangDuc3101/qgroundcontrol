@@ -32,4 +32,5 @@ public:
     DEFINE_SETTINGFACT(enableAutomaticMissionPopups)
     DEFINE_SETTINGFACT(editTargetHorizontalStep)
     DEFINE_SETTINGFACT(editTargetVerticalStep)
+    DEFINE_SETTINGFACT(paramCheckReferenceFile)
 };

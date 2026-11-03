@@ -160,6 +160,14 @@
             "default": 1,
             "label": "Edit Target Altitude Step",
             "keywords": "edit target,step,altitude"
+        },
+        {
+            "name": "paramCheckReferenceFile",
+            "shortDesc": "Reference PX4 .params file the Fly view parameter check compares the vehicle against.",
+            "type": "string",
+            "default": "",
+            "label": "Parameter Check Reference File",
+            "keywords": "parameter,check,reference,params"
         }
     ]
 }

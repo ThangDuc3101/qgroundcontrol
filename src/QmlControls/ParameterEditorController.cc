@@ -437,6 +437,11 @@ bool ParameterEditorController::buildDiffFromFile(const QString& filename)
                 continue;
             }
 
+            // PX4's virtual parameter-cache hash; files dumped straight from the vehicle can contain it
+            if (paramName == QStringLiteral("_HASH_CHECK")) {
+                continue;
+            }
+
             parsedLineCount++;
 
             QString     vehicleValueStr;
