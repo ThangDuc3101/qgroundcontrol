@@ -1,6 +1,8 @@
 # Spec: Đưa RC Loss / Data Link Loss Failsafe ra FlyView (PX4)
 
-Status: needs-triage
+Status: done
+
+Đã làm ở commit `d559cba68` (feat(PX4): add failsafe toolbar indicator to FlyView), file `src/FirmwarePlugin/PX4/PX4FailsafeIndicator.qml`.
 
 ## Mục tiêu
 
