@@ -128,6 +128,20 @@ Item {
                             }
                         }
                     }
+
+                    // Emergency disarm: hold to confirm, then force-disarm immediately (param2 = 21196),
+                    // bypassing every firmware check (in air, landing, etc.). No further confirmation dialog.
+                    QGCDelayButton {
+                        id:                 emergencyDisarmButton
+                        objectName:         "toolbar_emergencyDisarmButton"
+                        text:               qsTr("DISARM KHẨN CẤP")
+                        visible:            _activeVehicle !== null
+                        delay:              1000
+                        fontWeight:         Font.Bold
+                        backgroundColor:    pressed ? "#7f0000" : "#d00000"
+                        textColor:          "white"
+                        onActivated:        if (_activeVehicle) _activeVehicle.emergencyStop()
+                    }
                 }
             }
             Item {
