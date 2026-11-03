@@ -166,17 +166,20 @@ CMAKE_BIN="$(find_tool "${CMAKE_BIN}" cmake "/home/${USER}/.local/bin/cmake")"
 JAVA_HOME="$(find_jdk21)" || fail "no JDK 21+ found; set JAVA_HOME to one (Android Gradle build requires 21+)"
 export JAVA_HOME
 
-mapfile -t CONNECTED_DEVICES < <("${ADB_BIN}" devices | awk 'NR > 1 && $2 == "device" { print $1 }')
-if [[ -z "${DEVICE_SERIAL}" ]]; then
-    ((${#CONNECTED_DEVICES[@]} == 1)) || fail "expected one connected ADB device; use --serial"
-    DEVICE_SERIAL="${CONNECTED_DEVICES[0]}"
-fi
+# A device is only needed to install or launch; --no-install --no-launch builds and signs the APK without one
+if [[ "${INSTALL}" == true || "${LAUNCH}" == true ]]; then
+    mapfile -t CONNECTED_DEVICES < <("${ADB_BIN}" devices | awk 'NR > 1 && $2 == "device" { print $1 }')
+    if [[ -z "${DEVICE_SERIAL}" ]]; then
+        ((${#CONNECTED_DEVICES[@]} == 1)) || fail "expected one connected ADB device; use --serial"
+        DEVICE_SERIAL="${CONNECTED_DEVICES[0]}"
+    fi
 
-DEVICE_MODEL="$("${ADB_BIN}" -s "${DEVICE_SERIAL}" shell getprop ro.product.model | tr -d '\r')"
-case "${DEVICE_MODEL}" in
-MK15 | Pro_94) ;; # Pro_94 is the ro.product.model reported by the SIYI UniRC7 controller
-*) fail "device ${DEVICE_SERIAL} is '${DEVICE_MODEL}', not a recognized MK15/UniRC7 controller" ;;
-esac
+    DEVICE_MODEL="$("${ADB_BIN}" -s "${DEVICE_SERIAL}" shell getprop ro.product.model | tr -d '\r')"
+    case "${DEVICE_MODEL}" in
+    MK15 | Pro_94) ;; # Pro_94 is the ro.product.model reported by the SIYI UniRC7 controller
+    *) fail "device ${DEVICE_SERIAL} is '${DEVICE_MODEL}', not a recognized MK15/UniRC7 controller" ;;
+    esac
+fi
 [[ -f "${KEYSTORE_PATH}" ]] || fail "keystore not found: ${KEYSTORE_PATH}"
 
 STORE_PASS="${MK15_KEYSTORE_STORE_PASS:-}"
