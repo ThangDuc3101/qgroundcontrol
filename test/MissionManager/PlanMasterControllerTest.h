@@ -54,6 +54,8 @@ private slots:
     void _testPlanWithTrackingSetsTargetWaypoint();
     void _testPlanWithTrackingRejectsInvalidPlan();
     void _testTrackingBuildsOnPlanSentFromFile();
+    void _testTrackingRefusesPlanFromEarlierRun();
+    void _testEditTargetKeepsTrackingFromFlyViewOnly();
 
 private:
     enum DirtyScenario {

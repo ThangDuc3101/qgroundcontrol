@@ -136,6 +136,10 @@ public:
         }
     }
 
+    /// Test hook: ignore MAV_CMD_COMPONENT_ARM_DISARM (no ack, no state change) unless it is a forced disarm
+    /// (param2 21196), simulating a normal disarm that gets no answer while an emergency stop still gets through
+    void setIgnoreUnforcedArmDisarm(bool ignore) { _ignoreUnforcedArmDisarm = ignore; }
+
     enum ParamSetFailureMode_t {
         FailParamSetNone,               ///< Normal behavior
         FailParamSetNoAck,              ///< Do not send PARAM_VALUE ack
@@ -416,6 +420,7 @@ private:
     mutable QMutex _requestMessageNoResponseMutex;
     QSet<uint32_t> _requestMessageNoResponseIds;
     ParamSetFailureMode_t _paramSetFailureMode = FailParamSetNone;
+    std::atomic<bool> _ignoreUnforcedArmDisarm{false};
     bool _paramSetFailureFirstAttemptPending = false;
     ParamRequestReadFailureMode_t _paramRequestReadFailureMode = FailParamRequestReadNone;
     bool _paramRequestReadFailureFirstAttemptPending = false;

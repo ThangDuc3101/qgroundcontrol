@@ -84,6 +84,14 @@ QtObject {
         statusIsError = false
     }
 
+    // The toolbar hides the tracking controls without a vehicle, so never leave the mode on behind the user's back
+    property Connections _vehicleConnections: Connections {
+        target: QGroundControl.multiVehicleManager
+        function onActiveVehicleChanged(activeVehicle) {
+            root.setActive(false)
+        }
+    }
+
     property Connections _sendConnections: Connections {
         target: root._planController
         function onTrackingSendFinished(sentSeq, success, errorString) {

@@ -37,7 +37,10 @@ Item {
     }
 
     QGCFlickable {
+        id:                 toolBarFlickable
         anchors.fill:       parent
+        // The emergency disarm button is pinned outside the scrolling area, see emergencyDisarmPanel
+        anchors.rightMargin: emergencyDisarmPanel.visible ? emergencyDisarmPanel.width : 0
         contentWidth:       toolBarLayout.width
         flickableDirection: Flickable.HorizontalFlick
 
@@ -157,40 +160,25 @@ Item {
                         onClicked:  globals.trackingController.setActive(!globals.trackingController.active)
                     }
 
+                    // Shown for the whole tracking session (enabled only with a point) so the toolbar does not reflow
+                    // on every click; the tracking status line is drawn over the video instead (FlyViewVideo)
                     QGCButton {
                         objectName: "toolbar_trackingCancelButton"
                         text:       qsTr("Hủy điểm (Esc)")
-                        visible:    trackingButton.visible && globals.trackingController.active && globals.trackingController.point !== null
+                        visible:    trackingButton.visible && globals.trackingController.active
+                        enabled:    globals.trackingController.point !== null
                         onClicked:  globals.trackingController.cancelPoint()
-                    }
-
-                    QGCLabel {
-                        visible:        trackingButton.visible && globals.trackingController.active
-                        text:           globals.trackingController.statusText !== "" ? globals.trackingController.statusText
-                                                                                 : qsTr("Click vào camera để chọn mục tiêu, chuột phải hoặc Esc để hủy")
-                        color:          globals.trackingController.statusIsError ? qgcPal.colorRed : qgcPal.text
-                        font.pointSize: ScreenTools.smallFontPointSize
-                    }
-
-                    // Emergency disarm: hold to confirm, then force-disarm immediately (param2 = 21196),
-                    // bypassing every firmware check (in air, landing, etc.). No further confirmation dialog.
-                    QGCDelayButton {
-                        id:                 emergencyDisarmButton
-                        objectName:         "toolbar_emergencyDisarmButton"
-                        text:               qsTr("DISARM KHẨN CẤP")
-                        visible:            _activeVehicle !== null
-                        delay:              1000
-                        fontWeight:         Font.Bold
-                        backgroundColor:    pressed ? "#7f0000" : "#d00000"
-                        textColor:          "white"
-                        onActivated:        if (_activeVehicle) _activeVehicle.emergencyStop()
                     }
                 }
             }
             Item {
                 id:     centerPanel
                 // center panel takes up all remaining space in toolbar between left and right panels
-                width:  Math.max(guidedActionConfirm.visible ? guidedActionConfirm.width : 0, control.width - (leftPanel.width + rightPanel.width))
+                // never narrower than the board status box, so on small screens the toolbar scrolls instead of the box
+                // overlapping the buttons next to it
+                width:  Math.max(guidedActionConfirm.visible ? guidedActionConfirm.width : 0,
+                                 boardStatusBox.visible ? boardStatusBox.width + ScreenTools.defaultFontPixelWidth * 2 : 0,
+                                 toolBarFlickable.width - (leftPanel.width + rightPanel.width))
                 height: parent.height
 
                 Rectangle {
@@ -200,6 +188,7 @@ Item {
 
                 // Board (fuze) status from the external UAV info server
                 Rectangle {
+                    id:                 boardStatusBox
                     anchors.centerIn:   parent
                     width:              ScreenTools.defaultFontPixelWidth * 18
                     height:             parent.height * 0.8
@@ -253,6 +242,31 @@ Item {
                     height: parent.height
                 }
             }
+        }
+    }
+
+    // Emergency disarm: hold to confirm, then force-disarm immediately (param2 = 21196), bypassing every firmware
+    // check (in air, landing, etc.) and the command queue. No further confirmation dialog. Pinned to the right edge,
+    // outside the scrolling toolbar, so it never moves, is never scrolled away and a long press is never taken as a
+    // scroll gesture.
+    Rectangle {
+        id:             emergencyDisarmPanel
+        anchors.right:  parent.right
+        width:          emergencyDisarmButton.width + _leftRightMargin * 2
+        height:         parent.height
+        color:          qgcPal.windowTransparent
+        visible:        _activeVehicle !== null
+
+        QGCDelayButton {
+            id:                 emergencyDisarmButton
+            objectName:         "toolbar_emergencyDisarmButton"
+            anchors.centerIn:   parent
+            text:               qsTr("DISARM KHẨN CẤP")
+            delay:              1000
+            fontWeight:         Font.Bold
+            backgroundColor:    pressed ? "#7f0000" : "#d00000"
+            textColor:          "white"
+            onActivated:        if (_activeVehicle) _activeVehicle.emergencyStopUnqueued()
         }
     }
 

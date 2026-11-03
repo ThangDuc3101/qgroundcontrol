@@ -339,6 +339,11 @@ public:
     /// Command vehicle to kill all motors no matter what state
     Q_INVOKABLE void emergencyStop();
 
+    /// Same force-disarm as emergencyStop(), but written straight to the link, bypassing the command queue, and
+    /// sent several times. The queue refuses a command while the same command is still waiting for its ack (e.g. a
+    /// normal disarm on a degraded link), which is exactly when an emergency stop must still go out.
+    Q_INVOKABLE void emergencyStopUnqueued();
+
     /// Command vehicle to abort landing
     Q_INVOKABLE void abortLanding(double climbOutAltitude);
 

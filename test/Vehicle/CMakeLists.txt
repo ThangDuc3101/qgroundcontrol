@@ -9,6 +9,8 @@ target_sources(${CMAKE_PROJECT_NAME}
         FTPManagerTest.h
         FTPControllerTest.cc
         FTPControllerTest.h
+        EmergencyStopUnqueuedTest.cc
+        EmergencyStopUnqueuedTest.h
         FirmwareUpgradeControllerTest.cc
         FirmwareUpgradeControllerTest.h
         InitialConnectTest.cc
@@ -53,6 +55,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_
 add_subdirectory(ComponentInformation)
 
 add_qgc_test(APMAirframeComponentControllerTest LABELS Integration Vehicle)
+add_qgc_test(EmergencyStopUnqueuedTest LABELS Integration Vehicle)
 add_qgc_test(FTPControllerTest LABELS Integration Vehicle RESOURCE_LOCK TempFiles)
 add_qgc_test(FTPManagerTest LABELS Integration Vehicle)
 add_qgc_test(FirmwareUpgradeControllerTest LABELS Unit Vehicle)

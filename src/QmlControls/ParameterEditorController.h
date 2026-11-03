@@ -139,6 +139,13 @@ class ParameterEditorController : public FactPanelController
     Q_PROPERTY(bool                 diffOtherVehicle        MEMBER _diffOtherVehicle                                    NOTIFY diffOtherVehicleChanged)
     Q_PROPERTY(bool                 diffMultipleComponents  MEMBER _diffMultipleComponents                              NOTIFY diffMultipleComponentsChanged)
     Q_PROPERTY(QmlObjectListModel*  diffList                READ diffList                                               CONSTANT)
+    /// When set, buildDiffFromFile() leaves out sensor calibration parameters (see isSensorCalibrationParam()), which
+    /// belong to one vehicle's sensors and must not be copied from a reference file of another vehicle
+    Q_PROPERTY(bool                 diffSkipSensorCalibration MEMBER _diffSkipSensorCalibration                         NOTIFY diffSkipSensorCalibrationChanged)
+    Q_PROPERTY(QStringList          diffSkippedParams       READ diffSkippedParams                                      NOTIFY diffSkippedParamsChanged)
+    /// When set, buildDiffFromFile() also leaves out values the vehicle keeps for itself (see isVehicleRuntimeParam())
+    Q_PROPERTY(bool                 diffSkipVehicleRuntime  MEMBER _diffSkipVehicleRuntime                              NOTIFY diffSkipVehicleRuntimeChanged)
+    Q_PROPERTY(QStringList          diffSkippedRuntimeParams READ diffSkippedRuntimeParams                              NOTIFY diffSkippedParamsChanged)
 
 public:
     explicit ParameterEditorController(QObject *parent = nullptr);
@@ -148,6 +155,17 @@ public:
     Q_INVOKABLE bool buildDiffFromFile              (const QString& filename);
     Q_INVOKABLE void clearDiff                      (void);
     Q_INVOKABLE void sendDiff                       (void);
+
+    /// PX4 sensor calibration: CAL_* (accel/gyro/mag/baro/airspeed offsets, scales, ids, priorities), TC_* (thermal
+    /// compensation), SENS_BOARD_[XYZ]_OFF (level horizon), SENS_DPRES_OFF and ASPD_SCALE_<n> (airspeed). Settings
+    /// such as ASPD_SCALE_APPLY or SENS_BOARD_ROT are configuration and still compared.
+    static bool isSensorCalibrationParam(const QString& paramName);
+    QStringList diffSkippedParams() const { return _diffSkippedParams; }
+
+    /// Values PX4 maintains on its own: flight counters (COM_FLIGHT_UUID, LND_FLIGHT_T_HI/LO) and the learned magnetic
+    /// declination EKF2_MAG_DECL. They differ on every vehicle and after every flight; EKF2_DECL_TYPE is still compared.
+    static bool isVehicleRuntimeParam(const QString& paramName);
+    QStringList diffSkippedRuntimeParams() const { return _diffSkippedRuntimeParams; }
     Q_INVOKABLE void refresh                        (void);
     Q_INVOKABLE void resetAllToDefaults             (void);
     Q_INVOKABLE void resetAllToVehicleConfiguration (void);
@@ -175,6 +193,9 @@ signals:
     void diffMultipleComponentsChanged  (bool diffMultipleComponents);
     void parametersChanged              (void);
     void missingParamsFromFile          (const QStringList& missingParams);
+    void diffSkipSensorCalibrationChanged(void);
+    void diffSkippedParamsChanged       (void);
+    void diffSkipVehicleRuntimeChanged  (void);
 
 private slots:
     void _currentCategoryChanged(void);
@@ -203,6 +224,10 @@ private:
     bool                        _diffOtherVehicle       = false;
     bool                        _diffMultipleComponents = false;
     QStringList                 _diffMissingParams;
+    bool                        _diffSkipSensorCalibration = false;
+    QStringList                 _diffSkippedParams;
+    bool                        _diffSkipVehicleRuntime = false;
+    QStringList                 _diffSkippedRuntimeParams;
     QSet<QString>               _favoriteNames;
 
     QmlObjectListModel          _categories;

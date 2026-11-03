@@ -50,6 +50,14 @@ constexpr double      kMetersPerSecondToKmPerHour = 3.6;
 constexpr const char* kPlanUploadUrl = "http://192.168.144.30:5000/submit_plan";
 // Tracking clicks are sent one after another, so give up quickly on an unreachable server
 constexpr int         kTrackingPostTimeoutMs = 3000;
+// Each tracking click leaves a history file in SentPlans; keep only the newest ones
+constexpr int         kMaxTrackingHistoryFiles = 500;
+
+// Plan JSON last posted to the upload server during this run of QGC, and the last tracking object sent with it.
+// Shared by every PlanMasterController (Plan view and Fly view each have their own). latest_sent_plan.json on disk
+// may come from an earlier run, so tracking updates never build on it.
+QByteArray  s_sessionSentPlanBytes;
+QJsonObject s_sessionTracking;
 } // namespace
 
 PlanMasterController::PlanMasterController(QObject* parent)
@@ -802,7 +810,18 @@ void PlanMasterController::sendCurrentPlanToServer()
         return;
     }
 
-    const QByteArray planBytes = QJsonDocument(rootObject).toJson(QJsonDocument::Indented);
+    QByteArray planBytes = QJsonDocument(rootObject).toJson(QJsonDocument::Indented);
+
+    // From the Fly view this is Edit Target re-sending the same mission with a moved target: keep the tracking
+    // point already sent. A plan sent from the Plan view starts without one.
+    if (_flyView && !s_sessionTracking.isEmpty()) {
+        QString          trackingError;
+        const QByteArray withTracking = _planWithTracking(planBytes, s_sessionTracking, trackingError);
+        if (!withTracking.isEmpty()) {
+            planBytes = withTracking;
+        }
+    }
+
     _postPlanToServer(planBytes, _saveSentPlanCopy(planBytes));
 }
 
@@ -889,27 +908,42 @@ QString PlanMasterController::sendTrackingToServer(const QString& trackingJson)
     const QJsonObject tracking = trackingDoc.object();
     const int         seq      = tracking.value(QStringLiteral("seq")).toInt();
 
-    const QString missionSavePath = SettingsManager::instance()->appSettings()->missionSavePath();
-    QFile latestFile(QDir(missionSavePath).filePath(QStringLiteral("SentPlans/latest_sent_plan.json")));
-    if (missionSavePath.isEmpty() || !latestFile.open(QIODevice::ReadOnly)) {
-        return tr("Chưa có plan đã gửi");
+    if (s_sessionSentPlanBytes.isEmpty()) {
+        return tr("Chưa gửi plan nào trong phiên này");
     }
-    const QByteArray latestBytes = latestFile.readAll();
-    latestFile.close();
 
     QString          errorString;
-    const QByteArray planBytes = _planWithTracking(latestBytes, tracking, errorString);
+    const QByteArray planBytes = _planWithTracking(s_sessionSentPlanBytes, tracking, errorString);
     if (planBytes.isEmpty()) {
         return errorString;
     }
+    s_sessionSentPlanBytes = planBytes;
+    s_sessionTracking      = tracking;
 
     // Millisecond timestamp plus seq: several clicks can land within the same second
     const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
-    (void) _saveSentJsonCopy(QStringLiteral("SentPlans"), QStringLiteral("sent_plan_%1_track%2.json").arg(timestamp).arg(seq),
-                             QStringLiteral("latest_sent_plan.json"), planBytes);
+    const QString latestPath = _saveSentJsonCopy(QStringLiteral("SentPlans"), QStringLiteral("sent_plan_%1_track%2.json").arg(timestamp).arg(seq),
+                                                 QStringLiteral("latest_sent_plan.json"), planBytes);
+    if (!latestPath.isEmpty()) {
+        // Names start with a sortable timestamp, so the oldest come first
+        QDir        sentDir = QFileInfo(latestPath).dir();
+        QStringList history = sentDir.entryList({QStringLiteral("sent_plan_*_track*.json")}, QDir::Files, QDir::Name);
+        while (history.size() > kMaxTrackingHistoryFiles) {
+            (void) sentDir.remove(history.takeFirst());
+        }
+    }
+
     _postTrackingToServer(planBytes, seq);
     return QString();
 }
+
+#ifdef QGC_UNITTEST_BUILD
+void PlanMasterController::_resetSessionSentPlanUnitTest()
+{
+    s_sessionSentPlanBytes.clear();
+    s_sessionTracking = QJsonObject();
+}
+#endif
 
 void PlanMasterController::_postTrackingToServer(const QByteArray& planBytes, int seq)
 {
@@ -931,6 +965,8 @@ void PlanMasterController::_postTrackingToServer(const QByteArray& planBytes, in
 
 void PlanMasterController::_postPlanToServer(const QByteArray& planBytes, const QString& savedCopyPath)
 {
+    s_sessionSentPlanBytes = planBytes;
+
     QNetworkRequest request = QGCNetworkHelper::createRequest(QUrl(QString(kPlanUploadUrl)));
     QGCNetworkHelper::setJsonHeaders(request);
 

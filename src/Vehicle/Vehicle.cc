@@ -2175,6 +2175,39 @@ void Vehicle::emergencyStop()
                 21196.0f);  // Magic number for emergency stop
 }
 
+void Vehicle::emergencyStopUnqueued()
+{
+    static constexpr int kSendCount       = 3;
+    static constexpr int kSendIntervalMs  = 100;
+
+    for (int i = 0; i < kSendCount; i++) {
+        // Spaced out so a short burst of packet loss does not swallow every copy
+        QTimer::singleShot(i * kSendIntervalMs, this, [this, i]() {
+            SharedLinkInterfacePtr sharedLink = vehicleLinkManager()->primaryLink().lock();
+            if (!sharedLink) {
+                qCWarning(VehicleLog) << "emergencyStopUnqueued: no link";
+                return;
+            }
+
+            mavlink_command_long_t cmd{};
+            cmd.target_system       = static_cast<uint8_t>(id());
+            cmd.target_component    = static_cast<uint8_t>(defaultComponentId());
+            cmd.command             = MAV_CMD_COMPONENT_ARM_DISARM;
+            cmd.confirmation        = static_cast<uint8_t>(i);
+            cmd.param1              = 0.0f;     // disarm
+            cmd.param2              = 21196.0f; // force, regardless of state (same magic number as emergencyStop)
+
+            mavlink_message_t msg;
+            mavlink_msg_command_long_encode_chan(MAVLinkProtocol::instance()->getSystemId(),
+                                                 MAVLinkProtocol::getComponentId(),
+                                                 sharedLink->mavlinkChannel(),
+                                                 &msg,
+                                                 &cmd);
+            sendMessageOnLinkThreadSafe(sharedLink.get(), msg);
+        });
+    }
+}
+
 void Vehicle::landingGearDeploy()
 {
     sendMavCommand(

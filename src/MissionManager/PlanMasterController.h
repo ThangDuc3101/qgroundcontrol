@@ -116,8 +116,9 @@ public:
     Q_INVOKABLE void sendCurrentPlanToServer();
 
     /// FlyView tracking: puts trackingJson (a JSON object) under "tracking" on the target (last) waypoint of the
-    /// last plan sent (SentPlans/latest_sent_plan.json), saves the result like Send Plan does and posts it to the
-    /// upload server without showing a dialog. Completion is reported by trackingSendFinished().
+    /// last plan sent during this run of QGC (never a plan left on disk by an earlier run), saves the result like
+    /// Send Plan does and posts it to the upload server without showing a dialog. Completion is reported by
+    /// trackingSendFinished().
     ///     @param trackingJson Must contain an integer "seq", echoed back in trackingSendFinished()
     ///     @return Empty if the post was started, otherwise why nothing was sent
     Q_INVOKABLE QString sendTrackingToServer(const QString& trackingJson);
@@ -219,6 +220,7 @@ private:
     // Used by unit tests to set dirty flags for initial state
     void _setDirtyForSaveUnitTest(bool dirtyForSave) { _dirtyForSave = dirtyForSave; }
     void _setDirtyForUploadUnitTest(bool dirtyForUpload) { _dirtyForUpload = dirtyForUpload; }
+    static void _resetSessionSentPlanUnitTest();
 #endif
 
     MultiVehicleManager* _multiVehicleMgr = nullptr;

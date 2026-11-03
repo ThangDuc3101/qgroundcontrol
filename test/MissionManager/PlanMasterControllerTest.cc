@@ -30,12 +30,64 @@ using namespace TestFixtures;
 namespace {
 constexpr double kCoordToleranceMeters = 0.5;
 constexpr double kValueTolerance = 0.001;
+
+QByteArray readFileBytes(const QString& path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+bool writeFileBytes(const QString& path, const QByteArray& bytes)
+{
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && (file.write(bytes) == bytes.size());
+}
+
+/// Tests that send plans write to the real <missionSavePath>/SentPlans; this puts it back exactly as found
+class SentPlansGuard
+{
+public:
+    SentPlansGuard()
+        : _dir(QDir(SettingsManager::instance()->appSettings()->missionSavePath()).filePath(QStringLiteral("SentPlans")))
+    {
+        (void) _dir.mkpath(QStringLiteral("."));
+        _filesBefore  = _dir.entryList(QDir::Files);
+        _hadLatest    = QFile::exists(latestPath());
+        _latestBefore = readFileBytes(latestPath());
+    }
+    ~SentPlansGuard()
+    {
+        for (const QString& name : _dir.entryList(QDir::Files)) {
+            if (!_filesBefore.contains(name)) {
+                (void) QFile::remove(_dir.filePath(name));
+            }
+        }
+        if (_hadLatest) {
+            (void) writeFileBytes(latestPath(), _latestBefore);
+        }
+    }
+    const QDir& dir() const { return _dir; }
+    QString latestPath() const { return _dir.filePath(QStringLiteral("latest_sent_plan.json")); }
+
+private:
+    QDir        _dir;
+    QStringList _filesBefore;
+    bool        _hadLatest = false;
+    QByteArray  _latestBefore;
+};
+
+QJsonObject targetTracking(const QByteArray& planBytes)
+{
+    const QJsonArray waypoints = QJsonDocument::fromJson(planBytes).object().value(QStringLiteral("waypoints")).toArray();
+    return waypoints.isEmpty() ? QJsonObject() : waypoints.last().toObject().value(QStringLiteral("tracking")).toObject();
+}
 } // namespace
 
 void PlanMasterControllerTest::init()
 {
     UnitTest::init();
     MultiVehicleManager::instance()->init();
+    PlanMasterController::_resetSessionSentPlanUnitTest();
     _masterController = new PlanMasterController(this);
     _masterController->setFlyView(false);
     _masterController->start();
@@ -979,35 +1031,9 @@ void PlanMasterControllerTest::_testTrackingBuildsOnPlanSentFromFile()
     // cleanup() aborts it) and only the saved copies are checked. Ignore its result message if it lands early.
     ignoreLogMessage("API.QGCApplication.AppMessage", QtDebugMsg, QRegularExpression("."));
 
-    const QString missionSavePath = SettingsManager::instance()->appSettings()->missionSavePath();
-    QVERIFY(!missionSavePath.isEmpty());
-    const QDir sentDir(QDir(missionSavePath).filePath(QStringLiteral("SentPlans")));
-    QVERIFY(sentDir.mkpath(QStringLiteral(".")));
-    const QString latestPath = sentDir.filePath(QStringLiteral("latest_sent_plan.json"));
-
-    auto readFile = [](const QString& path) {
-        QFile file(path);
-        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
-    };
-    auto writeFile = [](const QString& path, const QByteArray& bytes) {
-        QFile file(path);
-        return file.open(QIODevice::WriteOnly) && (file.write(bytes) == bytes.size());
-    };
-
-    // Leave SentPlans exactly as found
-    const QStringList filesBefore  = sentDir.entryList(QDir::Files);
-    const bool        hadLatest    = QFile::exists(latestPath);
-    const QByteArray  latestBefore = readFile(latestPath);
-    const auto restore = qScopeGuard([&]() {
-        for (const QString& name : sentDir.entryList(QDir::Files)) {
-            if (!filesBefore.contains(name)) {
-                QFile::remove(sentDir.filePath(name));
-            }
-        }
-        if (hadLatest) {
-            (void) writeFile(latestPath, latestBefore);
-        }
-    });
+    const SentPlansGuard sentPlans;
+    const QDir&          sentDir    = sentPlans.dir();
+    const QString        latestPath = sentPlans.latestPath();
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -1015,21 +1041,21 @@ void PlanMasterControllerTest::_testTrackingBuildsOnPlanSentFromFile()
     const QString    planBPath  = tempDir.filePath(QStringLiteral("planB.json"));
     const QByteArray planABytes = QByteArrayLiteral(R"({"fileType":"FinalPlanWithTarget","waypoints":[{"latitude":1,"longitude":1,"is_target":true}]})");
     const QByteArray planBBytes = QByteArrayLiteral(R"({"fileType":"FinalPlanWithTarget","waypoints":[{"latitude":2,"longitude":2,"is_target":false},{"latitude":3,"longitude":3,"is_target":true}]})");
-    QVERIFY(writeFile(planAPath, planABytes));
-    QVERIFY(writeFile(planBPath, planBBytes));
+    QVERIFY(writeFileBytes(planAPath, planABytes));
+    QVERIFY(writeFileBytes(planBPath, planBBytes));
 
     // Plan A is sent, then plan B from a saved file: the latest copy must follow what was sent last
     _masterController->sendSavedPlanToServer(planAPath);
-    QCOMPARE(readFile(latestPath), planABytes);
+    QCOMPARE(readFileBytes(latestPath), planABytes);
     _masterController->sendSavedPlanToServer(planBPath);
-    QCOMPARE(readFile(latestPath), planBBytes);
+    QCOMPARE(readFileBytes(latestPath), planBBytes);
 
     // A tracking click then lands on plan B's target, not plan A's
     const QString error = _masterController->sendTrackingToServer(
         QStringLiteral(R"({"status":"point","seq":7,"timestamp_utc":"2026-11-03T03:00:00.000Z","x_px":5,"y_px":6,"frame_width":1280,"frame_height":720})"));
     QCOMPARE(error, QString());
 
-    const QJsonArray waypoints = QJsonDocument::fromJson(readFile(latestPath)).object().value(QStringLiteral("waypoints")).toArray();
+    const QJsonArray waypoints = QJsonDocument::fromJson(readFileBytes(latestPath)).object().value(QStringLiteral("waypoints")).toArray();
     QCOMPARE(waypoints.size(), 2);
     QVERIFY(!waypoints.at(0).toObject().contains(QStringLiteral("tracking")));
     const QJsonObject target   = waypoints.at(1).toObject();
@@ -1041,6 +1067,50 @@ void PlanMasterControllerTest::_testTrackingBuildsOnPlanSentFromFile()
 
     // The tracking update is also kept as its own history file
     QCOMPARE(sentDir.entryList({QStringLiteral("sent_plan_*_track7.json")}, QDir::Files).size(), 1);
+}
+
+void PlanMasterControllerTest::_testTrackingRefusesPlanFromEarlierRun()
+{
+    const SentPlansGuard sentPlans;
+    const QByteArray     earlierPlan = QByteArrayLiteral(R"({"fileType":"FinalPlanWithTarget","waypoints":[{"latitude":9,"longitude":9,"is_target":true}]})");
+    QVERIFY(writeFileBytes(sentPlans.latestPath(), earlierPlan));
+
+    // Nothing was sent during this run, so the plan left on disk must not be resent with the tracking point
+    QVERIFY(!_masterController->sendTrackingToServer(QStringLiteral(R"({"status":"point","seq":1})")).isEmpty());
+    QCOMPARE(readFileBytes(sentPlans.latestPath()), earlierPlan);
+    QCOMPARE(sentPlans.dir().entryList({QStringLiteral("sent_plan_*_track*.json")}, QDir::Files).size(), 0);
+}
+
+void PlanMasterControllerTest::_testEditTargetKeepsTrackingFromFlyViewOnly()
+{
+    ignoreLogMessage("API.QGCApplication.AppMessage", QtDebugMsg, QRegularExpression("."));
+    const SentPlansGuard sentPlans;
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString planPath = tempDir.filePath(QStringLiteral("plan.json"));
+    QVERIFY(writeFileBytes(planPath, QByteArrayLiteral(R"({"fileType":"FinalPlanWithTarget","waypoints":[{"latitude":1,"longitude":1,"is_target":true}]})")));
+    _masterController->sendSavedPlanToServer(planPath);
+    QCOMPARE(_masterController->sendTrackingToServer(QStringLiteral(R"({"status":"point","seq":4,"x_px":10,"y_px":20})")), QString());
+
+    // A mission in memory to re-send, as Edit Target does
+    MissionController* missionController = _masterController->missionController();
+    TakeoffMissionItem* takeoffItem = qobject_cast<TakeoffMissionItem*>(missionController->insertTakeoffItem(Coord::zurich(), 1));
+    QVERIFY(takeoffItem);
+    takeoffItem->setCoordinate(Coord::zurich());
+    QVERIFY(missionController->insertSimpleMissionItem(Coord::seattle(), 2));
+
+    // Plan view: a new plan starts without the earlier tracking point
+    _masterController->setFlyView(false);
+    _masterController->sendCurrentPlanToServer();
+    QVERIFY(targetTracking(readFileBytes(sentPlans.latestPath())).isEmpty());
+
+    // Fly view (Edit Target): the tracking point already sent is kept on the re-sent target
+    _masterController->setFlyView(true);
+    _masterController->sendCurrentPlanToServer();
+    const QJsonObject tracking = targetTracking(readFileBytes(sentPlans.latestPath()));
+    QCOMPARE(tracking.value(QStringLiteral("seq")).toInt(), 4);
+    QCOMPARE(tracking.value(QStringLiteral("x_px")).toInt(), 10);
 }
 
 #include "UnitTest.h"

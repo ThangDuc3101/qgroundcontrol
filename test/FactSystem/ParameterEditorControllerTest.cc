@@ -60,6 +60,33 @@ static const char* kQGCParamsHashCheck =
     "1\t1\t_HASH_CHECK\t-1530949660\t6\n"
     "1\t1\tNONEXISTENT_PARAM_XYZ\t1\t6\n";
 
+// Sensor calibration values that differ from the PX4 mock vehicle, plus two ordinary differences
+static const char* kQGCParamsWithCalibration =
+    "# Onboard parameters for Vehicle 1\n"
+    "#\n"
+    "# Vehicle-Id Component-Id Name Value Type\n"
+    "1\t1\tCAL_ACC0_XOFF\t0.5\t9\n"
+    "1\t1\tCAL_GYRO0_ID\t999\t6\n"
+    "1\t1\tSENS_BOARD_X_OFF\t1.5\t9\n"
+    "1\t1\tSENS_DPRES_OFF\t2.0\t9\n"
+    "1\t1\tASPD_SCALE_1\t1.3\t9\n"
+    "1\t1\tTC_A0_ID\t5\t6\n"
+    "1\t1\tSENS_BOARD_ROT\t2\t6\n"
+    "1\t1\tSYS_AUTOSTART\t4002\t6\n";
+
+// Flight counters and learned declination that differ from the PX4 mock vehicle, the declination mode (configuration)
+// and an ordinary difference
+static const char* kQGCParamsWithRuntimeValues =
+    "# Onboard parameters for Vehicle 1\n"
+    "#\n"
+    "# Vehicle-Id Component-Id Name Value Type\n"
+    "1\t1\tCOM_FLIGHT_UUID\t865\t6\n"
+    "1\t1\tLND_FLIGHT_T_HI\t1\t6\n"
+    "1\t1\tLND_FLIGHT_T_LO\t5\t6\n"
+    "1\t1\tEKF2_MAG_DECL\t-1.73\t9\n"
+    "1\t1\tEKF2_DECL_TYPE\t0\t6\n"
+    "1\t1\tSYS_AUTOSTART\t4002\t6\n";
+
 void ParameterEditorControllerTest::_buildDiffQGCFormat()
 {
     TestFixtures::TempFileFixture tempFile(QStringLiteral("test_XXXXXX.params"));
@@ -193,4 +220,106 @@ void ParameterEditorControllerTest::_buildDiffSkipsHashCheck()
     const auto* diff = controller.diffList()->value<ParameterEditorDiff*>(0);
     QVERIFY(diff);
     QCOMPARE(diff->name, QStringLiteral("NONEXISTENT_PARAM_XYZ"));
+}
+
+void ParameterEditorControllerTest::_buildDiffSkipsSensorCalibration()
+{
+    TestFixtures::TempFileFixture tempFile(QStringLiteral("test_XXXXXX.params"));
+    QVERIFY(tempFile.isValid());
+    QVERIFY(tempFile.write(QByteArray(kQGCParamsWithCalibration)));
+    QVERIFY(tempFile.file()->flush());
+
+    ParameterEditorController controller;
+    controller.setProperty("diffSkipSensorCalibration", true);
+    QVERIFY(controller.buildDiffFromFile(tempFile.path()));
+
+    // Only the ordinary differences are compared; board rotation is mounting config, not calibration
+    QStringList diffNames;
+    for (int i = 0; i < controller.diffList()->count(); i++) {
+        diffNames.append(controller.diffList()->value<ParameterEditorDiff*>(i)->name);
+    }
+    diffNames.sort();
+    QCOMPARE(diffNames, QStringList({QStringLiteral("SENS_BOARD_ROT"), QStringLiteral("SYS_AUTOSTART")}));
+
+    QStringList skipped = controller.diffSkippedParams();
+    skipped.sort();
+    QCOMPARE(skipped, QStringList({QStringLiteral("ASPD_SCALE_1"), QStringLiteral("CAL_ACC0_XOFF"), QStringLiteral("CAL_GYRO0_ID"),
+                                   QStringLiteral("SENS_BOARD_X_OFF"), QStringLiteral("SENS_DPRES_OFF"), QStringLiteral("TC_A0_ID")}));
+
+    controller.clearDiff();
+    QVERIFY(controller.diffSkippedParams().isEmpty());
+}
+
+void ParameterEditorControllerTest::_buildDiffComparesCalibrationByDefault()
+{
+    TestFixtures::TempFileFixture tempFile(QStringLiteral("test_XXXXXX.params"));
+    QVERIFY(tempFile.isValid());
+    QVERIFY(tempFile.write(QByteArray(kQGCParamsWithCalibration)));
+    QVERIFY(tempFile.file()->flush());
+
+    // The Parameters page "Load from file" (restoring a backup) keeps comparing everything
+    ParameterEditorController controller;
+    QVERIFY(controller.buildDiffFromFile(tempFile.path()));
+    QCOMPARE(controller.diffList()->count(), 8);
+    QVERIFY(controller.diffSkippedParams().isEmpty());
+}
+
+void ParameterEditorControllerTest::_isSensorCalibrationParam()
+{
+    for (const char* name : {"CAL_ACC0_XOFF", "CAL_MAG1_ID", "CAL_MAG_SIDES", "CAL_BARO0_PRIO", "TC_G0_X0_0", "TC_A_ENABLE",
+                             "SENS_BOARD_X_OFF", "SENS_BOARD_Z_OFF", "SENS_DPRES_OFF", "ASPD_SCALE_2"}) {
+        QVERIFY2(ParameterEditorController::isSensorCalibrationParam(QString::fromLatin1(name)), name);
+    }
+    for (const char* name : {"SENS_BOARD_ROT", "SENS_BOARD_X_OFFSET", "MPC_XY_VEL_MAX", "CALX_TEST", "MY_CAL_X", "RC1_TRIM",
+                             "ASPD_PRIMARY", "ASPD_SCALE_APPLY", "ASPD_SCALE_NSD", "SYS_AUTOSTART"}) {
+        QVERIFY2(!ParameterEditorController::isSensorCalibrationParam(QString::fromLatin1(name)), name);
+    }
+}
+
+void ParameterEditorControllerTest::_buildDiffSkipsVehicleRuntimeValues()
+{
+    TestFixtures::TempFileFixture tempFile(QStringLiteral("test_XXXXXX.params"));
+    QVERIFY(tempFile.isValid());
+    QVERIFY(tempFile.write(QByteArray(kQGCParamsWithRuntimeValues)));
+    QVERIFY(tempFile.file()->flush());
+
+    auto diffNames = [](ParameterEditorController& controller) {
+        QStringList names;
+        for (int i = 0; i < controller.diffList()->count(); i++) {
+            names.append(controller.diffList()->value<ParameterEditorDiff*>(i)->name);
+        }
+        names.sort();
+        return names;
+    };
+
+    // Runtime values are left out; the declination mode is configuration and still compared
+    ParameterEditorController controller;
+    controller.setProperty("diffSkipVehicleRuntime", true);
+    QVERIFY(controller.buildDiffFromFile(tempFile.path()));
+    QCOMPARE(diffNames(controller), QStringList({QStringLiteral("EKF2_DECL_TYPE"), QStringLiteral("SYS_AUTOSTART")}));
+    QStringList skipped = controller.diffSkippedRuntimeParams();
+    skipped.sort();
+    QCOMPARE(skipped, QStringList({QStringLiteral("COM_FLIGHT_UUID"), QStringLiteral("EKF2_MAG_DECL"),
+                                   QStringLiteral("LND_FLIGHT_T_HI"), QStringLiteral("LND_FLIGHT_T_LO")}));
+    QVERIFY(controller.diffSkippedParams().isEmpty());
+
+    // The two skips are independent: calibration-only skipping keeps comparing runtime values
+    ParameterEditorController calibrationOnly;
+    calibrationOnly.setProperty("diffSkipSensorCalibration", true);
+    QVERIFY(calibrationOnly.buildDiffFromFile(tempFile.path()));
+    QCOMPARE(calibrationOnly.diffList()->count(), 6);
+    QVERIFY(calibrationOnly.diffSkippedRuntimeParams().isEmpty());
+
+    controller.clearDiff();
+    QVERIFY(controller.diffSkippedRuntimeParams().isEmpty());
+}
+
+void ParameterEditorControllerTest::_isVehicleRuntimeParam()
+{
+    for (const char* name : {"COM_FLIGHT_UUID", "LND_FLIGHT_T_HI", "LND_FLIGHT_T_LO", "EKF2_MAG_DECL"}) {
+        QVERIFY2(ParameterEditorController::isVehicleRuntimeParam(QString::fromLatin1(name)), name);
+    }
+    for (const char* name : {"EKF2_DECL_TYPE", "COM_FLIGHT_UUIDX", "LND_FLIGHT_T", "MAV_SYS_ID", "CAL_ACC0_XOFF"}) {
+        QVERIFY2(!ParameterEditorController::isVehicleRuntimeParam(QString::fromLatin1(name)), name);
+    }
 }

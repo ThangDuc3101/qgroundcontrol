@@ -198,6 +198,26 @@ Item {
         }
     }
 
+    // Tracking status line, just below the toolbar (kept out of the toolbar so it does not reflow while tracking)
+    Rectangle {
+        anchors.horizontalCenter:   parent.horizontalCenter
+        anchors.top:                parent.top
+        anchors.topMargin:          ScreenTools.toolbarHeight + ScreenTools.defaultFontPixelHeight / 2
+        width:                      trackingStatusLabel.contentWidth + ScreenTools.defaultFontPixelWidth * 2
+        height:                     trackingStatusLabel.contentHeight + ScreenTools.defaultFontPixelHeight / 2
+        radius:                     ScreenTools.defaultBorderRadius
+        color:                      Qt.rgba(0, 0, 0, 0.6)
+        visible:                    _root._tracking.active && _root.pipState.state === _root.pipState.fullState
+
+        QGCLabel {
+            id:                 trackingStatusLabel
+            anchors.centerIn:   parent
+            text:               _root._tracking.statusText !== "" ? _root._tracking.statusText
+                                                                  : qsTr("Click vào camera để chọn mục tiêu, chuột phải hoặc Esc để hủy")
+            color:              _root._tracking.statusIsError ? "#ff6060" : "white"
+        }
+    }
+
     // Marker on the current tracking point
     Item {
         x:          (_root.width - videoStreaming.getWidth()) / 2 + (_root._tracking.point ? _root._tracking.point.xNorm * videoStreaming.getWidth() : 0)

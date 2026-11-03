@@ -358,9 +358,29 @@ void ParameterEditorController::saveToFile(const QString& filename)
     }
 }
 
+bool ParameterEditorController::isSensorCalibrationParam(const QString& paramName)
+{
+    static const QRegularExpression calibrationRegex(QStringLiteral("^(CAL_|TC_)|^ASPD_SCALE_[0-9]+$|^SENS_BOARD_[XYZ]_OFF$|^SENS_DPRES_OFF$"));
+    return calibrationRegex.match(paramName).hasMatch();
+}
+
+bool ParameterEditorController::isVehicleRuntimeParam(const QString& paramName)
+{
+    static const QSet<QString> runtimeParams = {
+        QStringLiteral("COM_FLIGHT_UUID"),
+        QStringLiteral("LND_FLIGHT_T_HI"),
+        QStringLiteral("LND_FLIGHT_T_LO"),
+        QStringLiteral("EKF2_MAG_DECL"),
+    };
+    return runtimeParams.contains(paramName);
+}
+
 void ParameterEditorController::clearDiff(void)
 {
     _diffList.clearAndDeleteContents();
+    _diffSkippedParams.clear();
+    _diffSkippedRuntimeParams.clear();
+    emit diffSkippedParamsChanged();
     _diffOtherVehicle = false;
     _diffMultipleComponents = false;
     _diffMissingParams.clear();
@@ -444,6 +464,15 @@ bool ParameterEditorController::buildDiffFromFile(const QString& filename)
 
             parsedLineCount++;
 
+            if (_diffSkipSensorCalibration && isSensorCalibrationParam(paramName)) {
+                _diffSkippedParams.append(paramName);
+                continue;
+            }
+            if (_diffSkipVehicleRuntime && isVehicleRuntimeParam(paramName)) {
+                _diffSkippedRuntimeParams.append(paramName);
+                continue;
+            }
+
             QString     vehicleValueStr;
             QString     units;
             QVariant    fileValueVar    = fileValueStr;
@@ -508,6 +537,7 @@ bool ParameterEditorController::buildDiffFromFile(const QString& filename)
 
     emit diffOtherVehicleChanged(_diffOtherVehicle);
     emit diffMultipleComponentsChanged(_diffMultipleComponents);
+    emit diffSkippedParamsChanged();
     if (!_diffMissingParams.isEmpty()) {
         emit missingParamsFromFile(_diffMissingParams);
     }

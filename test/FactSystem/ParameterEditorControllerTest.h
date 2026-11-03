@@ -15,4 +15,9 @@ private slots:
     void _buildDiffMissingOnVehicle();
     void _buildDiffMPMissingParam();
     void _buildDiffSkipsHashCheck();
+    void _buildDiffSkipsSensorCalibration();
+    void _buildDiffComparesCalibrationByDefault();
+    void _isSensorCalibrationParam();
+    void _buildDiffSkipsVehicleRuntimeValues();
+    void _isVehicleRuntimeParam();
 };
