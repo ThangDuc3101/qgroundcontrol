@@ -209,7 +209,11 @@ if [[ "${BUILD}" == true ]]; then
     "${CMAKE_BIN}" --build "${BUILD_DIR}" --target apk --parallel "${JOBS}"
 fi
 
-APK_PATH="${BUILD_DIR}/android-build/build/outputs/apk/debug/android-build-debug-signed.apk"
+# Gradle names the output after the build type, so a Release build is not under apk/debug
+BUILD_TYPE="$(sed -n 's/^CMAKE_BUILD_TYPE:[A-Z]*=//p' "${BUILD_DIR}/CMakeCache.txt")"
+APK_VARIANT=release
+[[ "${BUILD_TYPE}" == "Debug" ]] && APK_VARIANT=debug
+APK_PATH="${BUILD_DIR}/android-build/build/outputs/apk/${APK_VARIANT}/android-build-${APK_VARIANT}-signed.apk"
 [[ -f "${APK_PATH}" ]] || fail "signed APK not found: ${APK_PATH}"
 
 if [[ "${INSTALL}" == true ]]; then
