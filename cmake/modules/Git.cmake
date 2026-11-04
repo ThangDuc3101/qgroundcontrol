@@ -86,8 +86,10 @@ endif()
 # ----------------------------------------------------------------------------
 # Extract Version String from Git Tags
 # ----------------------------------------------------------------------------
+# Only version tags count: a nearest tag like "mk15-toolbar-branding-v3" cannot be
+# parsed below and would drop the app to 0.0.0.
 execute_process(
-    COMMAND ${GIT_EXECUTABLE} describe --always --tags
+    COMMAND ${GIT_EXECUTABLE} describe --always --tags --match "v[0-9]*"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     OUTPUT_VARIABLE QGC_APP_VERSION_STR
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -110,7 +112,7 @@ endif()
 # Extract Clean Version Tag
 # ----------------------------------------------------------------------------
 execute_process(
-    COMMAND ${GIT_EXECUTABLE} describe --always --tags --abbrev=0
+    COMMAND ${GIT_EXECUTABLE} describe --always --tags --abbrev=0 --match "v[0-9]*"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     OUTPUT_VARIABLE QGC_APP_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE
