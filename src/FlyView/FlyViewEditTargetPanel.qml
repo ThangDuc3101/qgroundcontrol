@@ -6,8 +6,9 @@ import QGroundControl.Controls
 import QGroundControl.FactControls
 
 // In-flight adjustment of the mission's final waypoint (the "is_target" point of the custom plan JSON)
-// using the keyboard. Confirming (button or holding Space) posts the adjusted plan to the upload server;
-// closing the panel any other way restores the original position.
+// using the keyboard. The arrow keys move it relative to the leg from the previous mission point to the target: up goes
+// along that leg, right goes 90 degrees clockwise from it. Confirming (button or holding Space) posts the adjusted plan
+// to the upload server; closing the panel any other way restores the original position.
 ColumnLayout {
     id:         root
     spacing:    ScreenTools.defaultFontPixelHeight / 2
@@ -18,6 +19,7 @@ ColumnLayout {
     readonly property var  _verticalStepPresets:    [ 0.5, 1, 2, 5, 10 ]
     readonly property int  _mavCmdNavWaypoint:  16 // MAV_CMD_NAV_WAYPOINT; the MAV_CMD enum is not exposed to QML
     readonly property int  _holdToConfirmMs:    1000
+    readonly property real _minLegMeters:       0.1 // a shorter leg has no usable direction
 
     property var    _planController:        globals.planMasterControllerFlyView
     property var    _flyViewSettings:       QGroundControl.settingsManager.flyViewSettings
@@ -28,29 +30,46 @@ ColumnLayout {
     property var    _targetItem:            null
     property var    _originalCoordinate
     property real   _originalAltitude:      0
-    property real   _northMeters:           0
-    property real   _eastMeters:            0
+    // Captured with the original position: following each move would turn the arrow keys while the target moves
+    property real   _legBearing:            0
+    property bool   _hasLeg:                false
+    property real   _forwardMeters:         0
+    property real   _rightMeters:           0
     property real   _upMeters:              0
     property bool   _confirmed:             false
     property real   _holdProgress:          0 // 0..1 while Space is held down
 
-    function _findTargetItem() {
+    function _findTargetIndex() {
         var visualItems = _missionController.visualItems
         for (var i = visualItems.count - 1; i >= 0; i--) {
             var item = visualItems.get(i)
             if (item.isSimpleItem && item.command === _mavCmdNavWaypoint) {
-                return item
+                return i
+            }
+        }
+        return -1
+    }
+
+    // The closest point the vehicle flies through before the target, which can be the takeoff or home position
+    function _findLegStart(targetIndex) {
+        var visualItems = _missionController.visualItems
+        var targetCoordinate = visualItems.get(targetIndex).coordinate
+        for (var i = targetIndex - 1; i >= 0; i--) {
+            var item = visualItems.get(i)
+            if (item.specifiesCoordinate && !item.isStandaloneCoordinate && item.exitCoordinate.isValid
+                    && item.exitCoordinate.distanceTo(targetCoordinate) >= _minLegMeters) {
+                return item.exitCoordinate
             }
         }
         return null
     }
 
-    function _moveHorizontal(northMeters, eastMeters) {
-        var distance = Math.sqrt(northMeters * northMeters + eastMeters * eastMeters)
-        var azimuth = Math.atan2(eastMeters, northMeters) * 180 / Math.PI
+    function _moveHorizontal(forwardMeters, rightMeters) {
+        var distance = Math.sqrt(forwardMeters * forwardMeters + rightMeters * rightMeters)
+        var azimuth = _legBearing + Math.atan2(rightMeters, forwardMeters) * 180 / Math.PI
         _targetItem.coordinate = _targetItem.coordinate.atDistanceAndAzimuth(distance, azimuth)
-        _northMeters += northMeters
-        _eastMeters += eastMeters
+        _forwardMeters += forwardMeters
+        _rightMeters += rightMeters
     }
 
     function _moveVertical(upMeters) {
@@ -172,9 +191,15 @@ ColumnLayout {
         QGCLabel { text: qsTr("Altitude") }
         QGCLabel { text: root._targetItem ? root._targetItem.altitude.valueString + " " + root._targetItem.altitude.units : "" }
 
-        QGCLabel { text: qsTr("Offset (N/E/Up)") }
+        QGCLabel { text: qsTr("Leg bearing") }
         QGCLabel {
-            text: qsTr("%1 / %2 / %3 m").arg(root._northMeters.toFixed(1)).arg(root._eastMeters.toFixed(1)).arg(root._upMeters.toFixed(1))
+            text:   root._hasLeg ? qsTr("%1°").arg(root._legBearing.toFixed(1)) : qsTr("No previous point, using North")
+            color:  root._hasLeg ? QGroundControl.globalPalette.text : QGroundControl.globalPalette.colorOrange
+        }
+
+        QGCLabel { text: qsTr("Offset (Fwd/Right/Up)") }
+        QGCLabel {
+            text: qsTr("%1 / %2 / %3 m").arg(root._forwardMeters.toFixed(1)).arg(root._rightMeters.toFixed(1)).arg(root._upMeters.toFixed(1))
         }
     }
 
@@ -197,7 +222,7 @@ ColumnLayout {
     QGCLabel {
         visible:            root._targetItem !== null
         Layout.fillWidth:   true
-        text:               qsTr("Arrow keys: move, PgUp/PgDn: altitude, Shift: x%1. Hold Space %2 s to confirm, Esc to cancel.")
+        text:               qsTr("Arrow keys: move relative to the leg bearing, PgUp/PgDn: altitude, Shift: x%1. Hold Space %2 s to confirm, Esc to cancel.")
                                 .arg(root._largeStepMultiplier).arg(root._holdToConfirmMs / 1000)
         font.pointSize:     ScreenTools.smallFontPointSize
         wrapMode:           Text.WordWrap
@@ -254,8 +279,14 @@ ColumnLayout {
     }
 
     Component.onCompleted: {
-        var targetItem = _findTargetItem()
-        if (targetItem) {
+        var targetIndex = _findTargetIndex()
+        if (targetIndex >= 0) {
+            var targetItem = _missionController.visualItems.get(targetIndex)
+            var legStart = _findLegStart(targetIndex)
+            if (legStart) {
+                _legBearing = legStart.azimuthTo(targetItem.coordinate)
+                _hasLeg = true
+            }
             _originalCoordinate = targetItem.coordinate
             _originalAltitude = targetItem.altitude.rawValue
             _targetItem = targetItem
