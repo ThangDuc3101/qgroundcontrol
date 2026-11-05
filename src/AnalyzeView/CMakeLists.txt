@@ -24,6 +24,7 @@ qt_add_qml_module(AnalyzeViewModule
         AnalyzePage.qml
         AnalyzeView.qml
         MAVLinkConsole/MAVLinkConsolePage.qml
+        MAVLinkConsole/MAVLinkConsoleView.qml
         MAVLinkInspector/MAVLinkChart.qml
         MAVLinkInspector/MAVLinkMessageButton.qml
         MAVLinkInspector/MAVLinkInspectorPage.qml

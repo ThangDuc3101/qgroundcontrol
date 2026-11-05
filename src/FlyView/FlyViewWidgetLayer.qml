@@ -92,6 +92,17 @@ Item {
         property real rightEdgeBottomInset:     width + _layoutMargin
     }
 
+    FlyViewConsoleBubble {
+        objectName:             "flyView_consoleBubble"
+        anchors.right:          parent.right
+        anchors.rightMargin:    _toolsMargin
+        anchors.bottom:         parent.bottom
+        anchors.bottomMargin:   _totalToolInsets.bottomEdgeRightInset + _toolsMargin
+        vehicle:                _activeVehicle
+        maximumWidth:           parent.width * 0.45
+        maximumHeight:          parent.height * 0.5
+    }
+
     //-- Telemetry values, moved out of bottomRightRowLayout to sit bottom-center (product request)
     TelemetryValuesBar {
         id:                     bottomCenterTelemetryBar

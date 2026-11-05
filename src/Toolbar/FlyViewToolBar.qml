@@ -121,6 +121,7 @@ Item {
                         objectName: "toolbar_editTargetButton"
                         text:       qsTr("Edit Target")
                         visible:    _activeVehicle !== null && globals.planMasterControllerFlyView.containsItems
+                        focusPolicy: Qt.NoFocus // closing the panel gives focus back to the console, if it had it
                         onClicked:  mainWindow.showIndicatorDrawer(editTargetPanelComponent, editTargetButton)
 
                         Component {
