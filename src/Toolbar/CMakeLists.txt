@@ -8,7 +8,6 @@ qt_add_qml_module(ToolbarModule
         ArmedIndicator.qml
         BatteryIndicator.qml
         ClockIndicator.qml
-        ControlAiAdjuster.qml
         ControlModeButton.qml
         EscIndicator.qml
         EscIndicatorPage.qml

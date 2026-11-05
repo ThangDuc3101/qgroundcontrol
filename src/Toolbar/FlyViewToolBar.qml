@@ -157,11 +157,6 @@ Item {
                         Layout.preferredWidth:  ScreenTools.defaultFontPixelWidth * 24
                     }
 
-                    ControlAiAdjuster {
-                        objectName: "toolbar_controlAiAdjuster"
-                        vehicle:    _activeVehicle
-                    }
-
                     // Click-to-track: while on, each click on the full-size video posts the pixel to the companion computer
                     QGCButton {
                         id:         trackingButton

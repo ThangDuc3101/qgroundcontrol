@@ -12,10 +12,4 @@ private slots:
     void _postsModeChange();
     void _reportsFailedModeChange();
     void _refusesUnknownMode();
-    void _followsReportedAi();
-    void _modeChangeCarriesAi();
-    void _postsAiChange();
-    void _refusesAiOutsideAutoOrRange();
-    void _aiCannotUndoUnconfirmedModeChange();
-    void _keepsRequestsInOrder();
 };
