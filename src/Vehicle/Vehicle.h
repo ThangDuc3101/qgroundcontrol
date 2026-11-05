@@ -145,6 +145,8 @@ public:
         CheckListFailed,
     };
     Q_ENUM(CheckList)
+    Q_PROPERTY(QString uavControlMode READ uavControlMode NOTIFY uavControlModeChanged)
+    Q_PROPERTY(double  uavControlAi   READ uavControlAi   NOTIFY uavControlAiChanged)
 
     Q_PROPERTY(int                  id                          READ id                                                             CONSTANT)
     Q_PROPERTY(AutoPilotPlugin*     autopilotPlugin             MEMBER _autopilotPlugin                                             CONSTANT)
@@ -343,6 +345,17 @@ public:
     /// sent several times. The queue refuses a command while the same command is still waiting for its ack (e.g. a
     /// normal disarm on a degraded link), which is exactly when an emergency stop must still go out.
     Q_INVOKABLE void emergencyStopUnqueued();
+
+    /// Asks the companion computer to change its control mode (not a PX4 flight mode). The new mode shows in
+    /// uavControlMode only once the companion computer reports it. Result of the request: uavControlModeSendFinished.
+    ///     @param mode "auto" or "manual"
+    Q_INVOKABLE void sendUavControlMode(const QString& mode);
+
+    /// Asks the companion computer to change its AI value, through the same request as the mode. Only in auto, and
+    /// not while a mode change is unconfirmed, since the request also carries the mode. The new value shows in
+    /// uavControlAi only once the companion computer reports it. Result of the request: uavControlModeSendFinished.
+    ///     @param ai 0.0 to 1.0
+    Q_INVOKABLE void sendUavControlAi(double ai);
 
     /// Command vehicle to abort landing
     Q_INVOKABLE void abortLanding(double climbOutAltitude);
@@ -734,6 +747,8 @@ public:
 
     /// Start polling the external UAV info HTTP server (board status + operator message) at freq Hz
     void GetUAVInfo(const QString& url, int freq);
+    QString uavControlMode() const { return _uavControlMode; }
+    double uavControlAi() const { return _uavControlAi; }
 
     /// Delete gimbal controller, handy for RequestMessageTest.cc, otherwise gimbal controller message requests will mess with this test
     void deleteGimbalController();
@@ -846,6 +861,9 @@ signals:
 
     /// External UAV info server poll result. boardStatus is "True"/"False" or an error string.
     void uavInfoReceived                (QString boardStatus, QString message);
+    void uavControlModeChanged          ();
+    void uavControlAiChanged            ();
+    void uavControlModeSendFinished     (bool success, QString errorString);
 
 private slots:
     void _mavlinkMessageReceived            (LinkInterface* link, mavlink_message_t message);
@@ -1014,9 +1032,18 @@ private:
     QTimer  _sendMultipleTimer;
     int     _nextSendMessageMultipleIndex = 0;
 
+    void _postUavControl(const QString& mode, double ai);
+    void _postNextUavControl();
+
     QNetworkAccessManager*  _networkManager = nullptr;
     QTimer*                 _requestTimer   = nullptr;
     QUrl                    _requestUrl;
+    QString                 _uavControlMode;    // "auto" or "manual" as last reported, empty while unknown
+    double                  _uavControlAi = -1;  // as last reported, negative while unknown
+    QString                 _uavControlModeRequested;   // sent but not reported yet, empty when none
+    int                     _uavControlModeSeq = 0;
+    QByteArray              _uavControlNextBody;        // waits for the request in flight, a newer one replaces it
+    bool                    _uavControlPostInFlight = false;
 
     QElapsedTimer                   _flightTimer;
     QTimer                          _flightTimeUpdater;

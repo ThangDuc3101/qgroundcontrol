@@ -150,6 +150,18 @@ Item {
                         }
                     }
 
+                    ControlModeButton {
+                        objectName:             "toolbar_controlModeButton"
+                        vehicle:                _activeVehicle
+                        visible:                _activeVehicle !== null
+                        Layout.preferredWidth:  ScreenTools.defaultFontPixelWidth * 24
+                    }
+
+                    ControlAiAdjuster {
+                        objectName: "toolbar_controlAiAdjuster"
+                        vehicle:    _activeVehicle
+                    }
+
                     // Click-to-track: while on, each click on the full-size video posts the pixel to the companion computer
                     QGCButton {
                         id:         trackingButton

@@ -11,6 +11,8 @@ target_sources(${CMAKE_PROJECT_NAME}
         FTPControllerTest.h
         EmergencyStopUnqueuedTest.cc
         EmergencyStopUnqueuedTest.h
+        UavControlModeTest.cc
+        UavControlModeTest.h
         FirmwareUpgradeControllerTest.cc
         FirmwareUpgradeControllerTest.h
         InitialConnectTest.cc
@@ -56,6 +58,7 @@ add_subdirectory(ComponentInformation)
 
 add_qgc_test(APMAirframeComponentControllerTest LABELS Integration Vehicle)
 add_qgc_test(EmergencyStopUnqueuedTest LABELS Integration Vehicle)
+add_qgc_test(UavControlModeTest LABELS Integration Vehicle)
 add_qgc_test(FTPControllerTest LABELS Integration Vehicle RESOURCE_LOCK TempFiles)
 add_qgc_test(FTPManagerTest LABELS Integration Vehicle)
 add_qgc_test(FirmwareUpgradeControllerTest LABELS Unit Vehicle)

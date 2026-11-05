@@ -51,6 +51,8 @@ DelayButton {
         _activated = false
     }
     onReleased: {
+        // DelayButton stays checked once activated, which would make the next hold do nothing
+        checked = false
         _showHelp = !_activated
         _activated = false
         if (_showHelp) {
@@ -59,6 +61,7 @@ DelayButton {
             helpTimeout.stop()
         }
     }
+    onCanceled: checked = false
 
     background: Rectangle {
         id:             backRect

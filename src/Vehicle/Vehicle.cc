@@ -91,6 +91,17 @@
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
 
+#include "QGCNetworkHelper.h"
+
+namespace {
+constexpr const char* kUavControlModeAuto   = "auto";
+constexpr const char* kUavControlModeManual = "manual";
+constexpr double      kUavControlAiMin      = 0.0;
+constexpr double      kUavControlAiMax      = 1.0;
+constexpr int         kUavInfoTimeoutMs     = 2000;
+constexpr int         kUavSetModeTimeoutMs  = 3000;
+}
+
 QGC_LOGGING_CATEGORY(VehicleLog, "Vehicle.Vehicle")
 
 #define UPDATE_TIMER 50
@@ -517,6 +528,8 @@ void Vehicle::_sendRequest()
         return;
     }
     QNetworkRequest request(_requestUrl);
+    // Without this a dead link leaves the last control mode on screen until TCP gives up
+    request.setTransferTimeout(kUavInfoTimeoutMs);
     _networkManager->get(request);
 }
 
@@ -528,6 +541,8 @@ void Vehicle::_requestFinished(QNetworkReply* reply)
 
     QString boardStatus = QStringLiteral("Lỗi Mạng");
     QString message;
+    QString controlMode;
+    double controlAi = -1;
 
     if (reply->error() == QNetworkReply::NoError) {
         const QByteArray data = reply->readAll();
@@ -549,6 +564,16 @@ void Vehicle::_requestFinished(QNetworkReply* reply)
             if (obj.contains("message")) {
                 message = obj.value("message").toString();
             }
+
+            const QString reportedMode = obj.value("control_mode").toString();
+            if (reportedMode == QLatin1String(kUavControlModeAuto) || reportedMode == QLatin1String(kUavControlModeManual)) {
+                controlMode = reportedMode;
+            }
+
+            const double reportedAi = obj.value("control_ai").toDouble(-1);
+            if (reportedAi >= kUavControlAiMin && reportedAi <= kUavControlAiMax) {
+                controlAi = reportedAi;
+            }
         } else {
             boardStatus = QStringLiteral("Lỗi JSON");
         }
@@ -556,8 +581,91 @@ void Vehicle::_requestFinished(QNetworkReply* reply)
         qCDebug(VehicleLog) << "UAV info request error:" << reply->errorString();
     }
 
+    if (controlMode != _uavControlMode) {
+        _uavControlMode = controlMode;
+        emit uavControlModeChanged();
+    }
+    if (controlMode.isEmpty() || controlMode == _uavControlModeRequested) {
+        _uavControlModeRequested.clear();
+    }
+    if (controlAi != _uavControlAi) {
+        _uavControlAi = controlAi;
+        emit uavControlAiChanged();
+    }
+
     emit uavInfoReceived(boardStatus, message);
     reply->deleteLater();
+}
+
+void Vehicle::sendUavControlMode(const QString& mode)
+{
+    if (mode != QLatin1String(kUavControlModeAuto) && mode != QLatin1String(kUavControlModeManual)) {
+        qCWarning(VehicleLog) << "Invalid UAV control mode:" << mode;
+        return;
+    }
+
+    _uavControlModeRequested = mode;
+    _postUavControl(mode, _uavControlAi);
+}
+
+void Vehicle::sendUavControlAi(double ai)
+{
+    if (!(ai >= kUavControlAiMin && ai <= kUavControlAiMax)) {
+        qCWarning(VehicleLog) << "Invalid UAV control AI value:" << ai;
+        return;
+    }
+    // The request carries the mode, so sending it here could undo a change to manual that is not reported yet
+    if (_uavControlMode != QLatin1String(kUavControlModeAuto) || !_uavControlModeRequested.isEmpty()) {
+        qCWarning(VehicleLog) << "UAV control AI value not sent, not settled in auto mode";
+        return;
+    }
+
+    _postUavControl(_uavControlMode, ai);
+}
+
+void Vehicle::_postUavControl(const QString& mode, double ai)
+{
+    QJsonObject body;
+    body[QStringLiteral("mode")]          = mode;
+    body[QStringLiteral("seq")]           = ++_uavControlModeSeq;
+    body[QStringLiteral("timestamp_utc")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    if (ai >= 0) {
+        body[QStringLiteral("ai")] = ai;
+    }
+
+    // One at a time: on a lossy link a late request carrying "auto" could otherwise land after a change to manual
+    _uavControlNextBody = QJsonDocument(body).toJson(QJsonDocument::Compact);
+    if (!_uavControlPostInFlight) {
+        _postNextUavControl();
+    }
+}
+
+void Vehicle::_postNextUavControl()
+{
+    QGCNetworkHelper::RequestConfig config;
+    config.timeoutMs = kUavSetModeTimeoutMs;
+    QNetworkRequest request = QGCNetworkHelper::createRequest(_requestUrl.resolved(QUrl(QStringLiteral("set_mode"))), config);
+    QGCNetworkHelper::setJsonHeaders(request);
+
+    QNetworkAccessManager* networkManager = QGCNetworkHelper::createNetworkManager(this);
+    QNetworkReply*         reply          = networkManager->post(request, _uavControlNextBody);
+
+    _uavControlNextBody.clear();
+    _uavControlPostInFlight = true;
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, networkManager]() {
+        const bool success = QGCNetworkHelper::isSuccess(reply);
+        _uavControlPostInFlight = false;
+        if (!success && _uavControlNextBody.isEmpty()) {
+            _uavControlModeRequested.clear();
+        }
+        emit uavControlModeSendFinished(success, success ? QString() : QGCNetworkHelper::errorMessage(reply));
+        reply->deleteLater();
+        networkManager->deleteLater();
+        if (!_uavControlNextBody.isEmpty()) {
+            _postNextUavControl();
+        }
+    });
 }
 
 void Vehicle::_offlineFirmwareTypeSettingChanged(QVariant varFirmwareType)
