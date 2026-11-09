@@ -21,6 +21,15 @@ Item {
     property var    _guidedController:  globals.guidedControllerFlyView
     property string _currentBoardStatus: "Đang kết nối..." // from the external UAV info server, see Vehicle::uavInfoReceived
 
+    // When the toolbar content is wider than the screen (small handheld screens such as the SIYI MK15), everything in
+    // it is scaled down by the same factor so all buttons stay visible, instead of being pushed out of the scrolling
+    // area. The height stays at ScreenTools.toolbarHeight since other views lay out against it. Below _minFitScale the
+    // buttons would get too small to touch, so the toolbar scrolls instead.
+    readonly property real _minFitScale:    0.5
+    readonly property real _naturalWidth:   leftPanel.width + centerPanel.minimumWidth + rightPanel.width
+                                            + (emergencyDisarmPanel.visible ? emergencyDisarmPanel.naturalWidth : 0)
+    readonly property real _fitScale:       _naturalWidth > 0 ? Math.max(_minFitScale, Math.min(1, width / _naturalWidth)) : 1
+
     function dropMainStatusIndicatorTool() {
         mainStatusIndicator.dropMainStatusIndicator();
     }
@@ -41,41 +50,43 @@ Item {
         anchors.fill:       parent
         // The emergency disarm button is pinned outside the scrolling area, see emergencyDisarmPanel
         anchors.rightMargin: emergencyDisarmPanel.visible ? emergencyDisarmPanel.width : 0
-        contentWidth:       toolBarLayout.width
+        contentWidth:       toolBarLayout.width * _fitScale
         flickableDirection: Flickable.HorizontalFlick
 
+        // The backgrounds sit outside the scaled row so they keep the full toolbar height
+        // Gradient background behind Q button and main status indicator
+        Rectangle {
+            id:         gradientBackground
+            height:     toolBarFlickable.height
+            width:      mainStatusLayout.width * _fitScale
+            opacity:    qgcPal.windowTransparent.a
+
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: _mainStatusBGColor }
+                GradientStop { position: 1; color: qgcPal.window }
+            }
+        }
+
+        // Standard toolbar background to the right of the gradient
+        Rectangle {
+            x:      gradientBackground.width
+            width:  toolBarFlickable.contentWidth - gradientBackground.width
+            height: toolBarFlickable.height
+            color:  qgcPal.windowTransparent
+        }
+
         Row {
-            id:         toolBarLayout
-            height:     parent.height
-            spacing:    0
+            id:                 toolBarLayout
+            height:             parent.height
+            spacing:            0
+            scale:              _fitScale
+            transformOrigin:    Item.Left
 
             Item {
                 id:     leftPanel
                 width:  leftPanelLayout.implicitWidth
                 height: parent.height
-
-                // Gradient background behind Q button and main status indicator
-                Rectangle {
-                    id:         gradientBackground
-                    height:     parent.height
-                    width:      mainStatusLayout.width
-                    opacity:    qgcPal.windowTransparent.a
-
-                    gradient: Gradient {
-                        orientation: Gradient.Horizontal
-                        GradientStop { position: 0; color: _mainStatusBGColor }
-                        //GradientStop { position: qgcButton.x + qgcButton.width; color: _mainStatusBGColor }
-                        GradientStop { position: 1; color: qgcPal.window }
-                    }
-                }
-
-                // Standard toolbar background to the right of the gradient
-                Rectangle {
-                    anchors.left:   gradientBackground.right
-                    anchors.right:  parent.right
-                    height:         parent.height
-                    color:          qgcPal.windowTransparent
-                }
 
                 RowLayout {
                     id:         leftPanelLayout
@@ -182,17 +193,12 @@ Item {
             Item {
                 id:     centerPanel
                 // center panel takes up all remaining space in toolbar between left and right panels
-                // never narrower than the board status box, so on small screens the toolbar scrolls instead of the box
-                // overlapping the buttons next to it
-                width:  Math.max(guidedActionConfirm.visible ? guidedActionConfirm.width : 0,
-                                 boardStatusBox.visible ? boardStatusBox.width + ScreenTools.defaultFontPixelWidth * 2 : 0,
-                                 toolBarFlickable.width - (leftPanel.width + rightPanel.width))
+                // never narrower than the board status box, so the box never overlaps the buttons next to it
+                width:  Math.max(minimumWidth, toolBarFlickable.width / _fitScale - (leftPanel.width + rightPanel.width))
                 height: parent.height
 
-                Rectangle {
-                    anchors.fill:   parent
-                    color:          qgcPal.windowTransparent
-                }
+                readonly property real minimumWidth: Math.max(guidedActionConfirm.visible ? guidedActionConfirm.width : 0,
+                                                              boardStatusBox.visible ? boardStatusBox.width + ScreenTools.defaultFontPixelWidth * 2 : 0)
 
                 // Board (fuze) status from the external UAV info server
                 Rectangle {
@@ -240,11 +246,6 @@ Item {
                 width:  flyViewIndicators.width
                 height: parent.height
 
-                Rectangle {
-                    anchors.fill:   parent
-                    color:          qgcPal.windowTransparent
-                }
-
                 FlyViewToolBarIndicators {
                     id:     flyViewIndicators
                     height: parent.height
@@ -260,15 +261,18 @@ Item {
     Rectangle {
         id:             emergencyDisarmPanel
         anchors.right:  parent.right
-        width:          emergencyDisarmButton.width + _leftRightMargin * 2
+        width:          naturalWidth * _fitScale
         height:         parent.height
         color:          qgcPal.windowTransparent
         visible:        _activeVehicle !== null
+
+        readonly property real naturalWidth: emergencyDisarmButton.width + _leftRightMargin * 2
 
         QGCDelayButton {
             id:                 emergencyDisarmButton
             objectName:         "toolbar_emergencyDisarmButton"
             anchors.centerIn:   parent
+            scale:              _fitScale
             text:               qsTr("DISARM KHẨN CẤP")
             delay:              1000
             fontWeight:         Font.Bold
